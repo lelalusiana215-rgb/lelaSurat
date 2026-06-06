@@ -384,34 +384,15 @@ export default function App() {
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, field: string, isSchoolData = false) => {
     const file = e.target.files?.[0];
     if (file) {
-      const img = new Image();
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        const MAX_DIM = 400;
-        let { width, height } = img;
-
-        if (width > MAX_DIM || height > MAX_DIM) {
-          if (width > height) {
-            height = Math.round((height * MAX_DIM) / width);
-            width = MAX_DIM;
-          } else {
-            width = Math.round((width * MAX_DIM) / height);
-            height = MAX_DIM;
-          }
-        }
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        ctx?.drawImage(img, 0, 0, width, height);
-
-        const dataUrl = canvas.toDataURL('image/png');
+      const reader = new FileReader();
+      reader.onloadend = () => {
         if (isSchoolData) {
-          setSchoolData(prev => ({ ...prev, [field]: dataUrl }));
+          setSchoolData(prev => ({ ...prev, [field]: reader.result as string }));
         } else {
-          setFormData(prev => ({ ...prev, [field]: dataUrl }));
+          setFormData(prev => ({ ...prev, [field]: reader.result as string }));
         }
       };
-      img.src = URL.createObjectURL(file);
+      reader.readAsDataURL(file);
     }
   };
 
@@ -472,11 +453,6 @@ export default function App() {
 
     if (dbStatus === 'supabase') {
       try {
-        const payloadRecord = { ...newRecord };
-        if (payloadRecord.ttdDigital && payloadRecord.ttdDigital.length > 500000) {
-           payloadRecord.ttdDigital = ''; // Exclude large signature
-        }
-
         const supabase = getSupabase();
         if (supabase) {
           const { data, error } = await supabase.from('surat_history').insert({
@@ -485,7 +461,7 @@ export default function App() {
             perihal: formData.perihal,
             nama_tujuan: formData.namaTujuan,
             tanggal_buat: newRecord.tanggalBuat,
-            form_data: payloadRecord
+            form_data: newRecord
           }).select().single();
           
           if (error) throw error;
