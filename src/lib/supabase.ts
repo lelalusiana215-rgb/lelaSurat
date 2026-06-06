@@ -1,31 +1,27 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
-// Will hold the initialized client
 let supabase: SupabaseClient | null = null;
+let initialized = false;
 
 export const initSupabase = async () => {
-  if (supabase) return true;
-
+  if (initialized) return true;
+  
   try {
     const res = await fetch('/api/env');
-    if (!res.ok) return false;
-    const { supabaseUrl, supabaseAnonKey } = await res.json();
-
-    if (supabaseUrl && supabaseAnonKey) {
-      try {
-        const validUrl = new URL(supabaseUrl);
-        if (validUrl.protocol === 'http:' || validUrl.protocol === 'https:') {
-          supabase = createClient(supabaseUrl, supabaseAnonKey);
-          return true;
-        }
-      } catch (e) {
-        console.error("Invalid Supabase URL:", supabaseUrl);
-      }
+    const env = await res.json();
+    
+    if (env.supabaseUrl && env.supabaseAnonKey) {
+      supabase = createClient(env.supabaseUrl, env.supabaseAnonKey);
+      initialized = true;
+      return true;
+    } else {
+      console.warn("Supabase credentials not found in env");
+      return false;
     }
-  } catch (e) {
-    console.error("Failed to fetch Supabase config");
+  } catch (error) {
+    console.error("Failed to fetch Supabase config", error);
+    return false;
   }
-  return false;
 };
 
 export const getSupabase = () => supabase;
