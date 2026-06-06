@@ -6,8 +6,10 @@ const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 let isValidUrl = false;
 try {
   if (supabaseUrl) {
-    new URL(supabaseUrl);
-    isValidUrl = true;
+    const url = new URL(supabaseUrl);
+    if (url.protocol === 'http:' || url.protocol === 'https:') {
+      isValidUrl = true;
+    }
   }
 } catch (e) {
   // Invalid URL

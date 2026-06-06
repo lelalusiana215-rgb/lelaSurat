@@ -24,6 +24,22 @@ import { supabase } from './lib/supabase';
 // Check if Supabase is properly configured in the environment
 const isSupabaseConfigured = Boolean(supabase);
 
+const safeGetStorage = (key: string) => {
+  try {
+    return localStorage.getItem(key);
+  } catch (e) {
+    return null;
+  }
+};
+
+const safeSetStorage = (key: string, value: string) => {
+  try {
+    localStorage.setItem(key, value);
+  } catch (e) {
+    // Ignore
+  }
+};
+
 export default function App() {
   const [activeTab, setActiveTab] = useState('buat'); // buat, riwayat, pengaturan
   const [isGenerating, setIsGenerating] = useState(false);
@@ -31,7 +47,7 @@ export default function App() {
   
   // State untuk Pengaturan KOP Sekolah
   const [schoolData, setSchoolData] = useState(() => {
-    const saved = localStorage.getItem('tu_school_data');
+    const saved = safeGetStorage('tu_school_data');
     return saved ? JSON.parse(saved) : {
       namaInstansi: 'PEMERINTAH PROVINSI JAWA BARAT\nDINAS PENDIDIKAN\nSMK NEGERI 1 CONTOH',
       alamat: 'Jl. Pendidikan No. 123, Kota Contoh, Provinsi Jawa Barat 40123',
@@ -65,7 +81,7 @@ export default function App() {
 
   // State untuk Riwayat Surat
   const [history, setHistory] = useState<any[]>(() => {
-    const saved = localStorage.getItem('tu_history_surat');
+    const saved = safeGetStorage('tu_history_surat');
     return saved ? JSON.parse(saved) : [];
   });
 
@@ -115,7 +131,7 @@ export default function App() {
 
   // Efek untuk menyimpan pengaturan
   useEffect(() => {
-    localStorage.setItem('tu_school_data', JSON.stringify(schoolData));
+    safeSetStorage('tu_school_data', JSON.stringify(schoolData));
     
     if (dbStatus === 'supabase') {
       const timeoutId = setTimeout(async () => {
@@ -138,7 +154,7 @@ export default function App() {
   }, [schoolData, dbStatus]);
 
   useEffect(() => {
-    localStorage.setItem('tu_history_surat', JSON.stringify(history));
+    safeSetStorage('tu_history_surat', JSON.stringify(history));
   }, [history]);
 
   // Penomoran Otomatis saat pertama load atau ganti jenis surat
