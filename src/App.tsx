@@ -22,7 +22,7 @@ import {
 import { supabase } from './lib/supabase';
 
 // Check if Supabase is properly configured in the environment
-const isSupabaseConfigured = Boolean(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY);
+const isSupabaseConfigured = Boolean(supabase);
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('buat'); // buat, riwayat, pengaturan
@@ -673,11 +673,11 @@ export default function App() {
           ` : ''}
 
           <div class="mb-6 text-justify">
-            ${formData.salamPembuka && !isSKLocal ? `<div class="mb-4">${formData.salamPembuka}</div>` : ''}
-            <div class="whitespace-pre-wrap leading-relaxed">${formData.isiSurat.replace(/\n/g, '<br/>')}</div>
+            ${formData.salamPembuka && !isSKLocal ? `<p style="margin-top: 0; margin-bottom: 12pt;">${formData.salamPembuka}</p>` : ''}
+            ${formData.isiSurat.split('\n').map(p => p.trim() ? `<p style="margin-top: 0; margin-bottom: 8pt; line-height: 1.5;">${p}</p>` : `<p style="margin: 0; line-height: 1.5;">&nbsp;</p>`).join('')}
           </div>
 
-          ${formData.penutup ? `<div class="mb-12 text-justify leading-relaxed">${formData.penutup.replace(/\n/g, '<br/>')}</div>` : ''}
+          ${formData.penutup ? `<div class="mb-12 text-justify">` + formData.penutup.split('\n').map(p => p.trim() ? `<p style="margin-top: 0; margin-bottom: 8pt; line-height: 1.5;">${p}</p>` : `<p style="margin: 0; line-height: 1.5;">&nbsp;</p>`).join('') + `</div>` : ''}
 
           <!-- TANDA TANGAN -->
           <table style="margin-top: 36pt;">
