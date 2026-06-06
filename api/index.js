@@ -7,6 +7,14 @@ dotenv.config();
 const app = express();
 app.use(express.json());
 
+// Dynamic ENV variables for client-side
+app.get("/api/env", (req, res) => {
+  res.json({
+    supabaseUrl: process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL,
+    supabaseAnonKey: process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY
+  });
+});
+
 const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY,
   httpOptions: {

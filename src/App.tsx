@@ -19,10 +19,7 @@ import {
   X,
   Database
 } from 'lucide-react';
-import { supabase } from './lib/supabase';
-
-// Check if Supabase is properly configured in the environment
-const isSupabaseConfigured = Boolean(supabase);
+import { initSupabase, getSupabase } from './lib/supabase';
 
 const safeGetStorage = (key: string) => {
   try {
@@ -43,7 +40,7 @@ const safeSetStorage = (key: string, value: string) => {
 export default function App() {
   const [activeTab, setActiveTab] = useState('buat'); // buat, riwayat, pengaturan
   const [isGenerating, setIsGenerating] = useState(false);
-  const [dbStatus, setDbStatus] = useState<'local' | 'supabase' | 'syncing'>(isSupabaseConfigured ? 'syncing' : 'local');
+  const [dbStatus, setDbStatus] = useState<'local' | 'supabase' | 'syncing'>('local');
   
   // State untuk Pengaturan KOP Sekolah
   const [schoolData, setSchoolData] = useState(() => {
@@ -87,9 +84,13 @@ export default function App() {
 
   // Load from Supabase on mount if configured
   useEffect(() => {
-    if (!isSupabaseConfigured) return;
-    
-    const loadFromSupabase = async () => {
+    const initializeApp = async () => {
+      const isOk = await initSupabase();
+      if (!isOk) return;
+
+      const supabase = getSupabase();
+      if (!supabase) return;
+      
       try {
         setDbStatus('syncing');
         const [schoolRes, historyRes] = await Promise.all([
@@ -126,7 +127,7 @@ export default function App() {
       }
     };
     
-    loadFromSupabase();
+    initializeApp();
   }, []);
 
   // Efek untuk menyimpan pengaturan
@@ -136,15 +137,18 @@ export default function App() {
     if (dbStatus === 'supabase') {
       const timeoutId = setTimeout(async () => {
         try {
-          await supabase.from('school_data').upsert({
-            id: 1,
-            nama_instansi: schoolData.namaInstansi,
-            alamat: schoolData.alamat,
-            kontak: schoolData.kontak,
-            logo: schoolData.logo,
-            logo_kanan: schoolData.logoKanan,
-            updated_at: new Date().toISOString()
-          });
+          const supabase = getSupabase();
+          if (supabase) {
+            await supabase.from('school_data').upsert({
+              id: 1,
+              nama_instansi: schoolData.namaInstansi,
+              alamat: schoolData.alamat,
+              kontak: schoolData.kontak,
+              logo: schoolData.logo,
+              logo_kanan: schoolData.logoKanan,
+              updated_at: new Date().toISOString()
+            });
+          }
         } catch (e) {
           console.error("Failed saving school data to supabase", e);
         }
@@ -449,19 +453,22 @@ export default function App() {
 
     if (dbStatus === 'supabase') {
       try {
-        const { data, error } = await supabase.from('surat_history').insert({
-          jenis_surat: formData.jenisSurat,
-          nomor_surat: formData.nomorSurat,
-          perihal: formData.perihal,
-          nama_tujuan: formData.namaTujuan,
-          tanggal_buat: newRecord.tanggalBuat,
-          form_data: newRecord
-        }).select().single();
-        
-        if (error) throw error;
-        
-        if (data && data.id) {
-            newRecord.id = data.id; // use real uuid
+        const supabase = getSupabase();
+        if (supabase) {
+          const { data, error } = await supabase.from('surat_history').insert({
+            jenis_surat: formData.jenisSurat,
+            nomor_surat: formData.nomorSurat,
+            perihal: formData.perihal,
+            nama_tujuan: formData.namaTujuan,
+            tanggal_buat: newRecord.tanggalBuat,
+            form_data: newRecord
+          }).select().single();
+          
+          if (error) throw error;
+          
+          if (data && data.id) {
+              newRecord.id = data.id; // use real uuid
+          }
         }
       } catch (err) {
         console.error("Failed to save to supabase", err);
@@ -486,7 +493,10 @@ export default function App() {
     if(window.confirm("Yakin ingin menghapus surat ini dari riwayat?")) {
       if (dbStatus === 'supabase') {
         try {
-          await supabase.from('surat_history').delete().eq('id', id);
+          const supabase = getSupabase();
+          if (supabase) {
+            await supabase.from('surat_history').delete().eq('id', id);
+          }
         } catch (err) {
           console.error("Failed to delete from supabase", err);
         }

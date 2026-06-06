@@ -1,20 +1,31 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+// Will hold the initialized client
+let supabase: SupabaseClient | null = null;
 
-let isValidUrl = false;
-try {
-  if (supabaseUrl) {
-    const url = new URL(supabaseUrl);
-    if (url.protocol === 'http:' || url.protocol === 'https:') {
-      isValidUrl = true;
+export const initSupabase = async () => {
+  if (supabase) return true;
+
+  try {
+    const res = await fetch('/api/env');
+    if (!res.ok) return false;
+    const { supabaseUrl, supabaseAnonKey } = await res.json();
+
+    if (supabaseUrl && supabaseAnonKey) {
+      try {
+        const validUrl = new URL(supabaseUrl);
+        if (validUrl.protocol === 'http:' || validUrl.protocol === 'https:') {
+          supabase = createClient(supabaseUrl, supabaseAnonKey);
+          return true;
+        }
+      } catch (e) {
+        console.error("Invalid Supabase URL:", supabaseUrl);
+      }
     }
+  } catch (e) {
+    console.error("Failed to fetch Supabase config");
   }
-} catch (e) {
-  // Invalid URL
-}
+  return false;
+};
 
-export const supabase = isValidUrl && supabaseAnonKey 
-  ? createClient(supabaseUrl, supabaseAnonKey) 
-  : null;
+export const getSupabase = () => supabase;

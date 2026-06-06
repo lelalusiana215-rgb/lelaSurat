@@ -12,6 +12,14 @@ async function startServer() {
 
   app.use(express.json());
 
+  // Dynamic ENV variables for client-side
+  app.get("/api/env", (req, res) => {
+    res.json({
+      supabaseUrl: process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL,
+      supabaseAnonKey: process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY
+    });
+  });
+
   // API route for Gemini generation
   app.post("/api/generate-letter", async (req, res) => {
     try {
