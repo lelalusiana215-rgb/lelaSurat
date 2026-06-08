@@ -64,8 +64,11 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('buat'); // buat, riwayat, pengaturan, users
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [authError, setAuthError] = useState<string | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [userProfiles, setUserProfiles] = useState<UserProfile[]>([]);
+  const [pendingCount, setPendingCount] = useState(0);
   const [isGenerating, setIsGenerating] = useState(false);
   const [dbStatus, setDbStatus] = useState<'local' | 'firebase' | 'syncing' | 'error'>('local');
   const [dbError, setDbError] = useState<string | null>(null);
@@ -131,10 +134,11 @@ export default function App() {
 
   // Sync profiles if admin
   useEffect(() => {
-    if (profile?.role === 'admin' && activeTab === 'users') {
+    if (profile?.role === 'admin') {
       const loadProfiles = async () => {
         const list = await getAllUserProfiles();
         setUserProfiles(list);
+        setPendingCount(list.filter(p => p.status === 'pending').length);
       };
       loadProfiles();
     }
@@ -994,6 +998,24 @@ export default function App() {
   const isSK = formData.jenisSurat === 'Surat Keputusan';
   const isEdaran = formData.jenisSurat === 'Surat Edaran';
 
+  const handleLogin = async () => {
+    if (isLoggingIn) return;
+    setAuthError(null);
+    setIsLoggingIn(true);
+    try {
+      await loginWithGoogle();
+    } catch (err: any) {
+      if (err.code === 'auth/cancelled-popup-request' || err.code === 'auth/popup-closed-by-user') {
+        // User cancelled, do nothing or show subtle message
+        console.log("Login cancelled by user");
+      } else {
+        setAuthError(err.message || 'Gagal masuk dengan Google.');
+      }
+    } finally {
+      setIsLoggingIn(false);
+    }
+  };
+
   if (authLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
@@ -1017,16 +1039,29 @@ export default function App() {
             <p className="text-blue-100 text-sm mt-1">Sistem Administrasi Surat Kedinasan</p>
           </div>
           <div className="p-8 text-center">
-            <p className="text-slate-600 mb-8">Silakan masuk dengan akun Google sekolah Anda untuk melanjutkan.</p>
+            <h2 className="text-xl font-bold text-slate-800 mb-2">Login / Daftar</h2>
+            <p className="text-slate-600 mb-8">Masuk dengan akun Google sekolah Anda. Jika Anda pengguna baru, login pertama kali akan mengirimkan permintaan akses ke Admin.</p>
+            
+            {authError && (
+              <div className="mb-6 p-4 bg-red-50 border border-red-100 rounded-xl text-red-600 text-xs font-medium">
+                {authError}
+              </div>
+            )}
+
             <button 
-              onClick={() => loginWithGoogle()}
-              className="w-full flex items-center justify-center gap-3 bg-white border-2 border-slate-200 py-3.5 rounded-xl font-bold text-slate-700 hover:bg-slate-50 hover:border-slate-300 transition-all active:scale-[0.98]"
+              onClick={handleLogin}
+              disabled={isLoggingIn}
+              className={`w-full flex items-center justify-center gap-3 bg-white border-2 border-slate-200 py-3.5 rounded-xl font-bold text-slate-700 hover:bg-slate-50 hover:border-slate-300 transition-all active:scale-[0.98] shadow-sm mb-4 ${isLoggingIn ? 'opacity-70 cursor-wait' : ''}`}
             >
-              <LogIn className="w-5 h-5 text-blue-600" />
-              Masuk dengan Google
+              {isLoggingIn ? (
+                <Loader2 className="w-5 h-5 text-blue-600 animate-spin" />
+              ) : (
+                <LogIn className="w-5 h-5 text-blue-600" />
+              )}
+              {isLoggingIn ? 'Memproses...' : 'Masuk / Daftar dengan Google'}
             </button>
             <div className="mt-8 flex items-center gap-2 justify-center text-slate-400 text-[10px] uppercase font-bold tracking-widest">
-              <ShieldCheck className="w-3 h-3" /> Aman & Terenkripsi
+              <ShieldCheck className="w-3 h-3" /> Verifikasi Otomatis
             </div>
           </div>
         </div>
@@ -1044,7 +1079,7 @@ export default function App() {
           <h2 className="text-2xl font-bold text-slate-800 mb-2">Menunggu Persetujuan</h2>
           <p className="text-slate-600 text-sm mb-8">
             Akun Anda <strong>{user.email}</strong> telah terdaftar. <br/>
-            Silakan hubungi Admin untuk mengaktifkan akses Anda ke aplikasi ini.
+            Silakan hubungi Admin di <strong>{ADMIN_EMAIL}</strong> untuk mengaktifkan akses Anda ke aplikasi ini.
           </p>
           <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 text-left mb-8">
             <div className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter mb-1">Status Anda:</div>
@@ -1170,12 +1205,19 @@ export default function App() {
             <SidebarButton active={activeTab === 'riwayat'} onClick={() => setActiveTab('riwayat')} icon={<History className="w-5 h-5" />} label="Riwayat Surat" />
             <SidebarButton active={activeTab === 'pengaturan'} onClick={() => setActiveTab('pengaturan')} icon={<Settings className="w-5 h-5" />} label="Pengaturan KOP" />
             {profile?.role === 'admin' && (
-              <SidebarButton 
-                active={activeTab === 'users'} 
-                onClick={() => setActiveTab('users')} 
-                icon={<Users className="w-5 h-5" />} 
-                label="Manajemen Akses" 
-              />
+              <div className="relative">
+                <SidebarButton 
+                  active={activeTab === 'users'} 
+                  onClick={() => setActiveTab('users')} 
+                  icon={<Users className="w-5 h-5" />} 
+                  label="Manajemen Akses" 
+                />
+                {pendingCount > 0 && (
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center justify-center w-5 h-5 bg-red-500 text-white text-[10px] font-bold rounded-full border-2 border-white animate-bounce">
+                    {pendingCount}
+                  </span>
+                )}
+              </div>
             )}
           </nav>
           {profile?.role === 'admin' && (
