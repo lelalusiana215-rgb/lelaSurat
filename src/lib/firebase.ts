@@ -77,6 +77,8 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
   let friendlyError = errMessage;
   if (errMessage.includes('permission-denied')) {
     friendlyError = 'Akses ditolak (Permission Denied). Periksa konfigurasi keamanan Firebase.';
+  } else if (errMessage.includes('not-found') || errMessage.includes('Database \'(default)\' not found')) {
+    friendlyError = 'Database Firestore "(default)" belum dibuat di Firebase Console. Silakan buka Firebase Console dan klik "Create Database" pada bagian Firestore.';
   } else if (errMessage.includes('unavailable') || errMessage.includes('offline')) {
     friendlyError = 'Database sedang luring atau tidak dapat dijangkau.';
   } else if (errMessage.includes('quota-exceeded')) {

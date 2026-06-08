@@ -1,10 +1,10 @@
 {
-  "projectId": "charged-dryad-q1b2m",
-  "appId": "1:534183788381:web:7793b5fe8aec0ae2f032b4",
-  "apiKey": "AIzaSyCJRwmBUYAIuEeKjWneTGwS4Pge2qC4WTU",
-  "authDomain": "charged-dryad-q1b2m.firebaseapp.com",
-  "firestoreDatabaseId": "ai-studio-b3e0cda8-1df0-4ea4-a3f9-dd9651fe0e0e",
-  "storageBucket": "charged-dryad-q1b2m.firebasestorage.app",
-  "messagingSenderId": "534183788381",
+  "projectId": "gen-lang-client-0961033707",
+  "appId": "1:481100380211:web:8ec5a04dfd7699ad318b46",
+  "apiKey": "AIzaSyCzF7r3LiI_syVCbigx9uQAJE_5cthxeac",
+  "authDomain": "gen-lang-client-0961033707.firebaseapp.com",
+  "firestoreDatabaseId": "(default)",
+  "storageBucket": "gen-lang-client-0961033707.firebasestorage.app",
+  "messagingSenderId": "481100380211",
   "measurementId": ""
 }
