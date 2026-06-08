@@ -17,7 +17,13 @@ import {
   FileUp,
   FileSpreadsheet,
   X,
-  Database
+  Database,
+  Users,
+  LogOut,
+  ShieldCheck,
+  ShieldAlert,
+  Clock,
+  LogIn
 } from 'lucide-react';
 import { 
   initFirebase, 
@@ -25,8 +31,18 @@ import {
   upsertSchoolData, 
   addSuratHistory, 
   getSuratHistoryList, 
-  deleteSuratHistory 
+  deleteSuratHistory,
+  auth,
+  loginWithGoogle,
+  logout,
+  getUserProfile,
+  requestAccess,
+  getAllUserProfiles,
+  updateUserStatus,
+  ADMIN_EMAIL,
+  type UserProfile
 } from './lib/firebase';
+import { onAuthStateChanged, type User } from 'firebase/auth';
 
 const safeGetStorage = (key: string) => {
   try {
@@ -45,7 +61,11 @@ const safeSetStorage = (key: string, value: string) => {
 };
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState('buat'); // buat, riwayat, pengaturan
+  const [activeTab, setActiveTab] = useState('buat'); // buat, riwayat, pengaturan, users
+  const [user, setUser] = useState<User | null>(null);
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [userProfiles, setUserProfiles] = useState<UserProfile[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [dbStatus, setDbStatus] = useState<'local' | 'firebase' | 'syncing' | 'error'>('local');
   const [dbError, setDbError] = useState<string | null>(null);
@@ -90,8 +110,40 @@ export default function App() {
     return saved ? JSON.parse(saved) : [];
   });
 
-  // Load from Supabase on mount if configured
+  // Auth & Profile Logic
   useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (u) => {
+      setUser(u);
+      if (u) {
+        setAuthLoading(true);
+        let p = await getUserProfile(u.uid);
+        if (!p) {
+          p = await requestAccess(u) as UserProfile;
+        }
+        setProfile(p);
+      } else {
+        setProfile(null);
+      }
+      setAuthLoading(false);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Sync profiles if admin
+  useEffect(() => {
+    if (profile?.role === 'admin' && activeTab === 'users') {
+      const loadProfiles = async () => {
+        const list = await getAllUserProfiles();
+        setUserProfiles(list);
+      };
+      loadProfiles();
+    }
+  }, [profile, activeTab]);
+
+  // Load from Firebase on mount if configured and approved
+  useEffect(() => {
+    if (profile?.status !== 'approved') return;
+
     const initializeApp = async () => {
       const result = await initFirebase();
       
@@ -942,6 +994,98 @@ export default function App() {
   const isSK = formData.jenisSurat === 'Surat Keputusan';
   const isEdaran = formData.jenisSurat === 'Surat Edaran';
 
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50">
+        <div className="text-center group">
+          <Loader2 className="w-12 h-12 text-blue-600 animate-spin mx-auto mb-4" />
+          <p className="text-slate-500 font-medium animate-pulse">Menghubungkan layanan...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4">
+        <div className="max-w-md w-full bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
+          <div className="bg-blue-600 p-8 text-center">
+            <div className="bg-white/20 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-white/30">
+              <Building className="w-8 h-8 text-white" />
+            </div>
+            <h1 className="text-2xl font-bold text-white">e-Surat TU</h1>
+            <p className="text-blue-100 text-sm mt-1">Sistem Administrasi Surat Kedinasan</p>
+          </div>
+          <div className="p-8 text-center">
+            <p className="text-slate-600 mb-8">Silakan masuk dengan akun Google sekolah Anda untuk melanjutkan.</p>
+            <button 
+              onClick={() => loginWithGoogle()}
+              className="w-full flex items-center justify-center gap-3 bg-white border-2 border-slate-200 py-3.5 rounded-xl font-bold text-slate-700 hover:bg-slate-50 hover:border-slate-300 transition-all active:scale-[0.98]"
+            >
+              <LogIn className="w-5 h-5 text-blue-600" />
+              Masuk dengan Google
+            </button>
+            <div className="mt-8 flex items-center gap-2 justify-center text-slate-400 text-[10px] uppercase font-bold tracking-widest">
+              <ShieldCheck className="w-3 h-3" /> Aman & Terenkripsi
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (profile?.status === 'pending') {
+    return (
+      <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4">
+        <div className="max-w-md w-full bg-white rounded-2xl shadow-xl border border-slate-200 p-10 text-center">
+          <div className="bg-amber-100 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6">
+            <Clock className="w-10 h-10 text-amber-600 animate-pulse" />
+          </div>
+          <h2 className="text-2xl font-bold text-slate-800 mb-2">Menunggu Persetujuan</h2>
+          <p className="text-slate-600 text-sm mb-8">
+            Akun Anda <strong>{user.email}</strong> telah terdaftar. <br/>
+            Silakan hubungi Admin untuk mengaktifkan akses Anda ke aplikasi ini.
+          </p>
+          <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 text-left mb-8">
+            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter mb-1">Status Anda:</div>
+            <div className="flex items-center gap-2 font-bold text-amber-600">
+              <span className="w-2 h-2 bg-amber-500 rounded-full animate-ping"></span>
+              PENDING APPROVAL
+            </div>
+          </div>
+          <button 
+            onClick={logout}
+            className="text-slate-400 hover:text-slate-600 text-sm font-medium transition-colors"
+          >
+            Keluar akun
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (profile?.status === 'rejected') {
+    return (
+      <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4">
+        <div className="max-w-md w-full bg-white rounded-2xl shadow-xl border border-slate-200 p-10 text-center">
+          <div className="bg-red-100 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6">
+            <ShieldAlert className="w-10 h-10 text-red-600" />
+          </div>
+          <h2 className="text-2xl font-bold text-slate-800 mb-2">Akses Ditolak</h2>
+          <p className="text-slate-600 text-sm mb-8">
+            Maaf, akses Anda ke aplikasi ini telah dibatasi atau ditolak oleh administrator.
+          </p>
+          <button 
+            onClick={logout}
+            className="w-full bg-slate-800 text-white py-3 rounded-xl font-bold hover:bg-slate-900 transition-all"
+          >
+            Kembali ke Login
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans text-slate-800">
       <style dangerouslySetInnerHTML={{__html: `
@@ -993,6 +1137,18 @@ export default function App() {
           </div>
         </div>
         <div className="flex items-center gap-4 text-sm font-medium">
+          {user && (
+            <div className="flex items-center gap-3 mr-4 border-r border-white/20 pr-4">
+              <img src={user.photoURL || ''} className="w-8 h-8 rounded-full border-2 border-white/20" />
+              <div className="hidden sm:block">
+                <p className="text-xs font-bold leading-none">{user.displayName}</p>
+                <p className="text-[10px] text-blue-200 leading-none mt-1">{user.email}</p>
+              </div>
+              <button onClick={logout} className="p-1.5 hover:bg-white/10 rounded-full text-white/70 hover:text-white transition-colors" title="Keluar">
+                <LogOut className="w-4 h-4" />
+              </button>
+            </div>
+          )}
           <button 
             onClick={handleRetryDatabase}
             className="flex items-center gap-1.5 px-3 py-1 bg-black/20 rounded-full border border-white/10 hover:bg-black/30 transition-colors" 
@@ -1013,7 +1169,21 @@ export default function App() {
             <SidebarButton active={activeTab === 'buat'} onClick={() => setActiveTab('buat')} icon={<FileText className="w-5 h-5" />} label="Buat Surat" />
             <SidebarButton active={activeTab === 'riwayat'} onClick={() => setActiveTab('riwayat')} icon={<History className="w-5 h-5" />} label="Riwayat Surat" />
             <SidebarButton active={activeTab === 'pengaturan'} onClick={() => setActiveTab('pengaturan')} icon={<Settings className="w-5 h-5" />} label="Pengaturan KOP" />
+            {profile?.role === 'admin' && (
+              <SidebarButton 
+                active={activeTab === 'users'} 
+                onClick={() => setActiveTab('users')} 
+                icon={<Users className="w-5 h-5" />} 
+                label="Manajemen Akses" 
+              />
+            )}
           </nav>
+          {profile?.role === 'admin' && (
+            <div className="p-4 bg-blue-50 border-t border-blue-100 italic text-[10px] text-blue-600">
+              <ShieldCheck className="w-3 h-3 inline mr-1" />
+              Mode Admin Aktif
+            </div>
+          )}
         </aside>
 
         <main className="flex-1 overflow-y-auto relative bg-slate-100 no-print">
@@ -1417,6 +1587,88 @@ export default function App() {
             </div>
           )}
 
+          {activeTab === 'users' && profile?.role === 'admin' && (
+            <div className="p-6">
+              <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                <div className="p-6 border-b border-slate-100 flex justify-between items-center">
+                  <div>
+                    <h2 className="text-xl font-bold text-slate-800">Manajemen Akses Pengguna</h2>
+                    <p className="text-sm text-slate-500">Kelola siapa yang dapat mengakses aplikasi ini.</p>
+                  </div>
+                  <div className="bg-blue-50 text-blue-700 px-3 py-1 rounded-full text-xs font-semibold flex items-center gap-1">
+                    <ShieldCheck className="w-3 h-3" /> Admin: {ADMIN_EMAIL}
+                  </div>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left">
+                    <thead className="bg-slate-50 text-slate-600 text-xs uppercase tracking-wider">
+                      <tr>
+                        <th className="px-6 py-4 font-bold">Pengguna</th>
+                        <th className="px-6 py-4 font-bold">Status</th>
+                        <th className="px-6 py-4 font-bold">Waktu Request</th>
+                        <th className="px-6 py-4 font-bold">Aksi</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {userProfiles.map((p) => (
+                        <tr key={p.uid} className="hover:bg-slate-50/50 transition-colors">
+                          <td className="px-6 py-4">
+                            <div className="flex items-center gap-3">
+                              <img src={p.photoURL} className="w-8 h-8 rounded-full" />
+                              <div>
+                                <div className="text-sm font-semibold text-slate-800">{p.displayName}</div>
+                                <div className="text-xs text-slate-500">{p.email}</div>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4">
+                            <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide ${
+                              p.status === 'approved' ? 'bg-emerald-100 text-emerald-700' :
+                              p.status === 'rejected' ? 'bg-red-100 text-red-700' :
+                              'bg-amber-100 text-amber-700'
+                            }`}>
+                              {p.status}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 text-xs text-slate-500">
+                            {p.requestedAt?.toDate ? p.requestedAt.toDate().toLocaleString('id-ID') : 'Baru saja'}
+                          </td>
+                          <td className="px-6 py-4">
+                            {p.uid !== user?.uid && (
+                              <div className="flex gap-2">
+                                {p.status !== 'approved' && (
+                                  <button 
+                                    onClick={() => {
+                                      updateUserStatus(p.uid, 'approved');
+                                      setUserProfiles(prev => prev.map(up => up.uid === p.uid ? { ...up, status: 'approved' } : up));
+                                    }}
+                                    className="px-3 py-1 bg-emerald-600 text-white rounded text-xs font-bold hover:bg-emerald-700 transition-colors"
+                                  >
+                                    Setujui
+                                  </button>
+                                )}
+                                {p.status !== 'rejected' && (
+                                  <button 
+                                    onClick={() => {
+                                      updateUserStatus(p.uid, 'rejected');
+                                      setUserProfiles(prev => prev.map(up => up.uid === p.uid ? { ...up, status: 'rejected' } : up));
+                                    }}
+                                    className="px-3 py-1 bg-slate-200 text-slate-700 rounded text-xs font-bold hover:bg-slate-300 transition-colors"
+                                  >
+                                    Blokir
+                                  </button>
+                                )}
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
           {activeTab === 'pengaturan' && (
             <div className="p-8 max-w-2xl mx-auto">
               <div className="bg-white rounded-xl shadow p-6 space-y-6">
@@ -1431,14 +1683,36 @@ export default function App() {
                   <input name="kontak" value={schoolData.kontak} onChange={handleSchoolDataChange} className="form-input" />
                 </InputWrapper>
                 <div className="grid grid-cols-2 gap-4">
-                  <div className="p-4 bg-slate-50 rounded-lg text-center">
+                  <div className="p-4 bg-slate-50 rounded-lg text-center relative group">
                     <label className="text-xs font-bold block mb-2">Logo Kiri</label>
-                    {schoolData.logo && <img src={schoolData.logo} className="h-16 mx-auto mb-2 object-contain" />}
+                    {schoolData.logo && (
+                      <div className="relative inline-block mb-2 group">
+                        <img src={schoolData.logo} className="h-16 mx-auto object-contain" />
+                        <button 
+                          onClick={() => setSchoolData(prev => ({ ...prev, logo: '' }))}
+                          className="absolute -top-2 -right-2 p-1 bg-red-100 text-red-600 rounded-full opacity-0 group-hover:opacity-100 transition-opacity shadow-sm hover:bg-red-200"
+                          title="Hapus Logo"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      </div>
+                    )}
                     <input type="file" onChange={e => handleImageUpload(e, 'logo', true)} className="text-xs w-full" />
                   </div>
-                  <div className="p-4 bg-slate-50 rounded-lg text-center">
+                  <div className="p-4 bg-slate-50 rounded-lg text-center relative group">
                     <label className="text-xs font-bold block mb-2">Logo Kanan</label>
-                    {schoolData.logoKanan && <img src={schoolData.logoKanan} className="h-16 mx-auto mb-2 object-contain" />}
+                    {schoolData.logoKanan && (
+                      <div className="relative inline-block mb-2 group">
+                        <img src={schoolData.logoKanan} className="h-16 mx-auto object-contain" />
+                        <button 
+                          onClick={() => setSchoolData(prev => ({ ...prev, logoKanan: '' }))}
+                          className="absolute -top-2 -right-2 p-1 bg-red-100 text-red-600 rounded-full opacity-0 group-hover:opacity-100 transition-opacity shadow-sm hover:bg-red-200"
+                          title="Hapus Logo"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      </div>
+                    )}
                     <input type="file" onChange={e => handleImageUpload(e, 'logoKanan', true)} className="text-xs w-full" />
                   </div>
                 </div>

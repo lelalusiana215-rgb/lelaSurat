@@ -1,5 +1,12 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
+import { 
+  getAuth, 
+  signInWithPopup, 
+  GoogleAuthProvider, 
+  onAuthStateChanged, 
+  signOut,
+  type User
+} from 'firebase/auth';
 import { 
   initializeFirestore, 
   persistentLocalCache, 
@@ -13,7 +20,9 @@ import {
   orderBy, 
   deleteDoc,
   serverTimestamp,
-  type Firestore
+  type Firestore,
+  where,
+  onSnapshot
 } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 
@@ -27,6 +36,20 @@ export const db: Firestore = initializeFirestore(app, {
 }, firebaseConfig.firestoreDatabaseId);
 
 export const auth = getAuth(app);
+const googleProvider = new GoogleAuthProvider();
+
+export const ADMIN_EMAIL = 'lelalusiana215@gmail.com';
+
+export interface UserProfile {
+  uid: string;
+  email: string;
+  displayName: string;
+  photoURL: string;
+  status: 'pending' | 'approved' | 'rejected';
+  role: 'admin' | 'user';
+  requestedAt: any;
+  updatedAt: any;
+}
 
 export enum OperationType {
   CREATE = 'create',
@@ -86,6 +109,75 @@ let initialized = false;
 export const initFirebase = async () => {
   initialized = true;
   return { ok: true };
+};
+
+export const loginWithGoogle = async () => {
+  try {
+    const result = await signInWithPopup(auth, googleProvider);
+    return result.user;
+  } catch (e) {
+    console.error("Auth Error:", e);
+    throw e;
+  }
+};
+
+export const logout = () => signOut(auth);
+
+// User Profile Management
+export const getUserProfile = async (uid: string): Promise<UserProfile | null> => {
+  try {
+    const docRef = doc(db, 'user_profiles', uid);
+    const snap = await getDoc(docRef);
+    return snap.exists() ? (snap.data() as UserProfile) : null;
+  } catch (e) {
+    console.error("Error getting profile:", e);
+    return null;
+  }
+};
+
+export const requestAccess = async (user: User) => {
+  const path = 'user_profiles';
+  try {
+    const isOwner = user.email === ADMIN_EMAIL;
+    const profile: UserProfile = {
+      uid: user.uid,
+      email: user.email || '',
+      displayName: user.displayName || 'User',
+      photoURL: user.photoURL || '',
+      status: isOwner ? 'approved' : 'pending',
+      role: isOwner ? 'admin' : 'user',
+      requestedAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    };
+    await setDoc(doc(db, path, user.uid), profile, { merge: true });
+    return profile;
+  } catch (e) {
+    handleFirestoreError(e, OperationType.WRITE, path);
+  }
+};
+
+export const getAllUserProfiles = async (): Promise<UserProfile[]> => {
+  const path = 'user_profiles';
+  try {
+    const q = query(collection(db, path), orderBy('requestedAt', 'desc'));
+    const snap = await getDocs(q);
+    return snap.docs.map(d => d.data() as UserProfile);
+  } catch (e) {
+    handleFirestoreError(e, OperationType.LIST, path);
+    return [];
+  }
+};
+
+export const updateUserStatus = async (uid: string, status: 'approved' | 'rejected') => {
+  const path = 'user_profiles';
+  try {
+    await setDoc(doc(db, path, uid), { 
+      status,
+      updatedAt: serverTimestamp()
+    }, { merge: true });
+  } catch (e) {
+    handleFirestoreError(e, OperationType.UPDATE, path);
+  }
 };
 
 export const getFirebaseDb = () => db;

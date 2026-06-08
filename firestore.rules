@@ -1,8 +1,41 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    // Default deny
     match /{document=**} {
-      allow read, write: if true;
+      allow read, write: if false;
+    }
+
+    // Helpers
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function isAdmin() {
+      return isSignedIn() && request.auth.token.email == 'lelalusiana215@gmail.com';
+    }
+    
+    function isApproved() {
+      return isAdmin() || (isSignedIn() && get(/databases/$(database)/documents/user_profiles/$(request.auth.uid)).data.status == 'approved');
+    }
+
+    // User Profiles
+    match /user_profiles/{userId} {
+      allow read: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+      allow create: if isSignedIn() && request.auth.uid == userId;
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // Core Collections - Accessible only if approved
+    match /school_data/{document} {
+      allow read: if isApproved();
+      allow write: if isAdmin();
+    }
+
+    match /surat_history/{suratId} {
+      allow read: if isApproved();
+      allow write: if isApproved();
     }
   }
 }
