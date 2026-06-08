@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
 import { getSupabase } from '../lib/supabase';
-import { Mail, Lock, Loader2, ArrowRight } from 'lucide-react';
+import { Mail, Lock, Loader2, ArrowRight, Eye, EyeOff } from 'lucide-react';
 
 export default function Auth({ onLogin }: { onLogin: (user: any) => void }) {
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -27,49 +28,80 @@ export default function Auth({ onLogin }: { onLogin: (user: any) => void }) {
           email,
           password,
         });
-        if (error) throw error;
+        
+        if (error) {
+          if (error.message.includes('Invalid login credentials')) {
+            throw new Error('Email atau password salah. Jika Anda belum mendaftar, silakan pilih menu "Daftar di sini".');
+          }
+          throw error;
+        }
         
         // Cek profil
         if (data.user) {
           // Jika ini owner, otomatis buat jika belum ada, atau izinkan
           if (data.user.email === 'lelalusiana215@gmail.com') {
              // Pastikan di tabel ada
-             await supabase.from('user_profiles').upsert({
-               id: data.user.id,
-               email: data.user.email,
-               status: 'approved'
-             }, { onConflict: 'id' });
+             try {
+               await supabase.from('user_profiles').upsert({
+                 id: data.user.id,
+                 email: data.user.email,
+                 status: 'approved'
+               }, { onConflict: 'id' });
+             } catch (e) {
+               console.error("Profile upsert fail", e);
+             }
           } else {
              // Cek profil
              const { data: profile } = await supabase.from('user_profiles').select('*').eq('id', data.user.id).single();
              if (!profile) {
                 // Insert profil pertama kali login jika sign up nggak masuk
-                await supabase.from('user_profiles').insert({
-                   id: data.user.id,
-                   email: data.user.email,
-                   status: 'pending'
-                });
+                try {
+                  await supabase.from('user_profiles').insert({
+                     id: data.user.id,
+                     email: data.user.email,
+                     status: 'pending'
+                  });
+                } catch (e) {
+                  console.error("Profile insert fail", e);
+                }
              }
           }
           onLogin(data.user);
         }
       } else {
+        // Cek jika mendaftar dengan email owner tapi sudah ada
         const { data, error } = await supabase.auth.signUp({
           email,
           password,
         });
-        if (error) throw error;
+
+        if (error) {
+          if (error.message.includes('already registered')) {
+            throw new Error('Email ini sudah terdaftar. Silakan gunakan menu Login.');
+          }
+          throw error;
+        }
         
         if (data.user) {
-          // Buat profil dengan status pending
-          await supabase.from('user_profiles').upsert({
-             id: data.user.id,
-             email: data.user.email,
-             status: data.user.email === 'lelalusiana215@gmail.com' ? 'approved' : 'pending'
-          }, { onConflict: 'id' });
+          // Buat profil dengan status pending (atau auto-approve jika owner)
+          try {
+            await supabase.from('user_profiles').upsert({
+               id: data.user.id,
+               email: data.user.email,
+               status: data.user.email === 'lelalusiana215@gmail.com' ? 'approved' : 'pending'
+            }, { onConflict: 'id' });
+          } catch (profileErr) {
+            console.error("Gagal membuat profil:", profileErr);
+            // Tetap lanjutkan karena profil bisa dibuat saat login pertama kali
+          }
           
-          alert('Pendaftaran berhasil! Jika Anda bukan pemilik aplikasi, tunggu persetujuan admin sebelum bisa login.');
-          setIsLogin(true); // Kembali ke login
+          if (data.session) {
+             // Jika auto-login setelah signup
+             onLogin(data.user);
+          } else {
+             alert('Pendaftaran berhasil! Silakan periksa email Anda untuk konfirmasi (jika diperlukan) lalu masuk ke aplikasi.');
+             setIsLogin(true);
+          }
         }
       }
     } catch (err: any) {
@@ -121,14 +153,25 @@ export default function Auth({ onLogin }: { onLogin: (user: any) => void }) {
                   <Lock className="h-5 w-5 text-slate-400" />
                 </div>
                 <input
-                  type="password"
+                  type={showPassword ? "text" : "password"}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="block w-full pl-10 pr-3 py-2 border border-slate-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                  className="block w-full pl-10 pr-10 py-2 border border-slate-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                   placeholder="••••••••"
                   required
                   minLength={6}
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600 focus:outline-none"
+                >
+                  {showPassword ? (
+                    <EyeOff className="h-5 w-5" />
+                  ) : (
+                    <Eye className="h-5 w-5" />
+                  )}
+                </button>
               </div>
             </div>
             
