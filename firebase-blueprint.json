@@ -1,0 +1,43 @@
+{
+  "entities": {
+    "SchoolData": {
+      "title": "School Data",
+      "description": "Information for the school letterhead",
+      "type": "object",
+      "properties": {
+        "namaInstansi": { "type": "string" },
+        "alamat": { "type": "string" },
+        "kontak": { "type": "string" },
+        "logo": { "type": "string" },
+        "logoKanan": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["namaInstansi"]
+    },
+    "SuratHistory": {
+      "title": "Surat History",
+      "description": "Records of generated letters",
+      "type": "object",
+      "properties": {
+        "jenisSurat": { "type": "string" },
+        "nomorSurat": { "type": "string" },
+        "perihal": { "type": "string" },
+        "namaTujuan": { "type": "string" },
+        "tanggalBuat": { "type": "string", "format": "date-time" },
+        "formData": { "type": "object" },
+        "authorId": { "type": "string" }
+      },
+      "required": ["jenisSurat", "nomorSurat", "perihal", "tanggalBuat"]
+    }
+  },
+  "firestore": {
+    "school_data": {
+      "schema": "SchoolData",
+      "description": "Global school settings (usually only one doc)"
+    },
+    "surat_history": {
+      "schema": "SuratHistory",
+      "description": "History of all letters generated"
+    }
+  }
+}

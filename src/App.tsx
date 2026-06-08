@@ -19,7 +19,14 @@ import {
   X,
   Database
 } from 'lucide-react';
-import { initSupabase, getSupabase } from './lib/supabase';
+import { 
+  initFirebase, 
+  getSchoolData, 
+  upsertSchoolData, 
+  addSuratHistory, 
+  getSuratHistoryList, 
+  deleteSuratHistory 
+} from './lib/firebase';
 
 const safeGetStorage = (key: string) => {
   try {
@@ -40,7 +47,8 @@ const safeSetStorage = (key: string, value: string) => {
 export default function App() {
   const [activeTab, setActiveTab] = useState('buat'); // buat, riwayat, pengaturan
   const [isGenerating, setIsGenerating] = useState(false);
-  const [dbStatus, setDbStatus] = useState<'local' | 'supabase' | 'syncing'>('local');
+  const [dbStatus, setDbStatus] = useState<'local' | 'firebase' | 'syncing' | 'error'>('local');
+  const [dbError, setDbError] = useState<string | null>(null);
   
   // State untuk Pengaturan KOP Sekolah
   const [schoolData, setSchoolData] = useState(() => {
@@ -85,45 +93,48 @@ export default function App() {
   // Load from Supabase on mount if configured
   useEffect(() => {
     const initializeApp = async () => {
-      const isOk = await initSupabase();
-      if (!isOk) return;
+      const result = await initFirebase();
+      if (!result.ok) {
+        setDbError('Gagal memuat Firebase: ' + result.error);
+        return;
+      }
 
-      const supabase = getSupabase();
-      if (!supabase) return;
-      
       try {
         setDbStatus('syncing');
-        const [schoolRes, historyRes] = await Promise.all([
-          supabase.from('school_data').select('*').eq('id', 1).single(),
-          supabase.from('surat_history').select('*').order('tanggal_buat', { ascending: false })
+        
+        const [fSchoolData, fHistory] = await Promise.all([
+          getSchoolData(),
+          getSuratHistoryList()
         ]);
         
-        if (schoolRes.data) {
+        if (fSchoolData) {
           setSchoolData({
-            namaInstansi: schoolRes.data.nama_instansi || '',
-            alamat: schoolRes.data.alamat || '',
-            kontak: schoolRes.data.kontak || '',
-            logo: schoolRes.data.logo || '',
-            logoKanan: schoolRes.data.logo_kanan || '',
+            namaInstansi: fSchoolData.namaInstansi || '',
+            alamat: fSchoolData.alamat || '',
+            kontak: fSchoolData.kontak || '',
+            logo: fSchoolData.logo || '',
+            logoKanan: fSchoolData.logoKanan || '',
           });
         }
         
-        if (historyRes.data) {
-          setHistory(historyRes.data.map(h => ({
+        if (fHistory) {
+          setHistory(fHistory.map((h: any) => ({
             id: h.id,
-            tanggalBuat: h.tanggal_buat,
-            jenisSurat: h.jenis_surat,
-            nomorSurat: h.nomor_surat,
+            tanggalBuat: h.tanggalBuat,
+            jenisSurat: h.jenisSurat,
+            nomorSurat: h.nomorSurat,
             perihal: h.perihal,
-            namaTujuan: h.nama_tujuan,
-            ...h.form_data
+            namaTujuan: h.namaTujuan,
+            ...h.formData
           })));
         }
         
-        setDbStatus('supabase');
-      } catch (err) {
-        console.error("Supabase load error", err);
-        setDbStatus('local'); // Fallback on error
+        setDbStatus('firebase');
+        setDbError(null);
+      } catch (err: any) {
+        console.error("Firebase load error", err);
+        setDbStatus('error');
+        setDbError(err.message || 'Gagal terhubung ke database Firebase.');
       }
     };
     
@@ -134,23 +145,26 @@ export default function App() {
   useEffect(() => {
     safeSetStorage('tu_school_data', JSON.stringify(schoolData));
     
-    if (dbStatus === 'supabase') {
+    if (dbStatus === 'firebase') {
       const timeoutId = setTimeout(async () => {
         try {
-          const supabase = getSupabase();
-          if (supabase) {
-            await supabase.from('school_data').upsert({
-              id: 1,
-              nama_instansi: schoolData.namaInstansi,
-              alamat: schoolData.alamat,
-              kontak: schoolData.kontak,
-              logo: schoolData.logo,
-              logo_kanan: schoolData.logoKanan,
-              updated_at: new Date().toISOString()
-            });
+          await upsertSchoolData({
+            namaInstansi: schoolData.namaInstansi,
+            alamat: schoolData.alamat,
+            kontak: schoolData.kontak,
+            logo: schoolData.logo,
+            logoKanan: schoolData.logoKanan
+          });
+          if (dbStatus === 'error' && dbError?.includes('size')) {
+            setDbError(null);
+            setDbStatus('firebase');
           }
-        } catch (e) {
-          console.error("Failed saving school data to supabase", e);
+        } catch (e: any) {
+          console.error("Failed saving school data to firebase", e);
+          if (e.message?.includes('exceeds the maximum allowed size')) {
+             setDbStatus('error');
+             setDbError('Ukuran Logo terlalu besar untuk disimpan di Cloud. Silakan ganti dengan logo yang lebih kecil.');
+          }
         }
       }, 1000);
       return () => clearTimeout(timeoutId);
@@ -405,10 +419,26 @@ export default function App() {
         ctx?.drawImage(img, 0, 0, width, height);
 
         const dataUrl = canvas.toDataURL('image/png');
-        if (isSchoolData) {
-          setSchoolData(prev => ({ ...prev, [field]: dataUrl }));
+        
+        // Estimate size (base64 is ~1.33x original)
+        if (dataUrl.length > 450000) { 
+          // If still too large, try JPEG with 0.7 quality
+          const jpegDataUrl = canvas.toDataURL('image/jpeg', 0.7);
+          if (jpegDataUrl.length > 450000) {
+            alert("Gambar logo terlalu besar. Silakan gunakan gambar dengan resolusi lebih rendah atau ukuran file lebih kecil (Maksimal ~400KB per logo).");
+            return;
+          }
+          if (isSchoolData) {
+            setSchoolData(prev => ({ ...prev, [field]: jpegDataUrl }));
+          } else {
+            setFormData(prev => ({ ...prev, [field]: jpegDataUrl }));
+          }
         } else {
-          setFormData(prev => ({ ...prev, [field]: dataUrl }));
+          if (isSchoolData) {
+            setSchoolData(prev => ({ ...prev, [field]: dataUrl }));
+          } else {
+            setFormData(prev => ({ ...prev, [field]: dataUrl }));
+          }
         }
       };
       img.src = URL.createObjectURL(file);
@@ -465,37 +495,32 @@ export default function App() {
       return;
     }
     const newRecord = {
-      id: Date.now(), // we'll use numeric id for local fallback, but supabase generates uuid
+      id: Date.now(), // we'll use numeric id for local fallback, but firebase generates uuid
       tanggalBuat: new Date().toISOString(),
       ...formData
     };
 
-    if (dbStatus === 'supabase') {
+    if (dbStatus === 'firebase') {
       try {
         const payloadRecord = { ...newRecord };
         if (payloadRecord.ttdDigital && payloadRecord.ttdDigital.length > 500000) {
            payloadRecord.ttdDigital = ''; // Exclude large signature
         }
 
-        const supabase = getSupabase();
-        if (supabase) {
-          const { data, error } = await supabase.from('surat_history').insert({
-            jenis_surat: formData.jenisSurat,
-            nomor_surat: formData.nomorSurat,
-            perihal: formData.perihal,
-            nama_tujuan: formData.namaTujuan,
-            tanggal_buat: newRecord.tanggalBuat,
-            form_data: payloadRecord
-          }).select().single();
-          
-          if (error) throw error;
-          
-          if (data && data.id) {
-              newRecord.id = data.id; // use real uuid
-          }
+        const fbId = await addSuratHistory({
+          jenisSurat: formData.jenisSurat,
+          nomorSurat: formData.nomorSurat,
+          perihal: formData.perihal,
+          namaTujuan: formData.namaTujuan,
+          tanggalBuat: newRecord.tanggalBuat,
+          formData: payloadRecord
+        });
+        
+        if (fbId) {
+            newRecord.id = fbId;
         }
       } catch (err) {
-        console.error("Failed to save to supabase", err);
+        console.error("Failed to save to firebase", err);
         // keep going, will save to local
       }
     }
@@ -515,14 +540,11 @@ export default function App() {
 
   const hapusRiwayat = async (id: any) => {
     if(window.confirm("Yakin ingin menghapus surat ini dari riwayat?")) {
-      if (dbStatus === 'supabase') {
+      if (dbStatus === 'firebase') {
         try {
-          const supabase = getSupabase();
-          if (supabase) {
-            await supabase.from('surat_history').delete().eq('id', id);
-          }
+          await deleteSuratHistory(id);
         } catch (err) {
-          console.error("Failed to delete from supabase", err);
+          console.error("Failed to delete from firebase", err);
         }
       }
       setHistory(history.filter(h => h.id !== id));
@@ -876,10 +898,10 @@ export default function App() {
           </div>
         </div>
         <div className="flex items-center gap-4 text-sm font-medium">
-          <div className="flex items-center gap-1.5 px-3 py-1 bg-black/20 rounded-full border border-white/10" title={dbStatus === 'supabase' ? 'Terhubung ke Supabase' : 'Data disimpan lokal'}>
-            <Database className={`w-3.5 h-3.5 ${dbStatus === 'supabase' ? 'text-emerald-400' : dbStatus === 'syncing' ? 'text-amber-400 animate-pulse' : 'text-slate-400'}`} />
+          <div className="flex items-center gap-1.5 px-3 py-1 bg-black/20 rounded-full border border-white/10" title={dbStatus === 'firebase' ? 'Terhubung ke Firebase' : dbError || 'Data disimpan lokal'}>
+            <Database className={`w-3.5 h-3.5 ${dbStatus === 'firebase' ? 'text-emerald-400' : dbStatus === 'syncing' ? 'text-amber-400 animate-pulse' : dbStatus === 'error' ? 'text-red-400' : 'text-slate-400'}`} />
             <span className="text-xs text-white/90 uppercase tracking-wider">
-              {dbStatus === 'supabase' ? 'Supabase' : dbStatus === 'syncing' ? 'Syncing...' : 'Local'}
+              {dbStatus === 'firebase' ? 'Firebase' : dbStatus === 'syncing' ? 'Syncing...' : dbStatus === 'error' ? 'Db Error' : 'Local'}
             </span>
           </div>
           <span>Tahun Ajaran {new Date().getFullYear()}</span>

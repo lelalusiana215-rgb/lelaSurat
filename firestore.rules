@@ -1,14 +1,31 @@
 rules_version = '2';
+
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /test/{document} {
-      allow read, write: if true;
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
     }
-    match /school_data/{document} {
-      allow read, write: if true;
+
+    // Validation helpers
+    function isValidId(id) {
+       return id is string && id.size() <= 128;
     }
-    match /surat_history/{document} {
-      allow read, write: if true;
+    
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    match /school_data/{settingId} {
+      allow read: if true; // Publicly readable for the app to function
+      allow write: if isSignedIn(); // Restricted to signed in users (admin concept missing but could be added)
+    }
+
+    match /surat_history/{suratId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isValidId(suratId);
+      allow update: if isSignedIn() && (request.auth.uid == resource.data.authorId || request.auth.uid == request.resource.data.authorId);
+      allow delete: if isSignedIn();
     }
   }
 }
