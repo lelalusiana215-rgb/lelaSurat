@@ -28,9 +28,28 @@
         "authorId": { "type": "string" }
       },
       "required": ["jenisSurat", "nomorSurat", "perihal", "tanggalBuat"]
+    },
+    "UserProfile": {
+      "title": "User Profile",
+      "description": "Information about registered users and their access status",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected"] },
+        "role": { "type": "string", "enum": ["admin", "user"] },
+        "requestedAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      }
     }
   },
   "firestore": {
+    "user_profiles": {
+      "schema": "UserProfile",
+      "description": "User profiles and access control"
+    },
     "school_data": {
       "schema": "SchoolData",
       "description": "Global school settings (usually only one doc)"

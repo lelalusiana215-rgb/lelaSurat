@@ -1039,12 +1039,16 @@ export default function App() {
             <p className="text-blue-100 text-sm mt-1">Sistem Administrasi Surat Kedinasan</p>
           </div>
           <div className="p-8 text-center">
-            <h2 className="text-xl font-bold text-slate-800 mb-2">Login / Daftar</h2>
-            <p className="text-slate-600 mb-8">Masuk dengan akun Google sekolah Anda. Jika Anda pengguna baru, login pertama kali akan mengirimkan permintaan akses ke Admin.</p>
+            <h2 className="text-xl font-bold text-slate-800 mb-2">Login / Pendaftaran</h2>
+            <p className="text-slate-600 text-sm mb-8 leading-relaxed">
+              Gunakan akun Google sekolah Anda untuk masuk. <br/>
+              <span className="text-blue-600 font-semibold italic text-[11px]">Bagi pengguna baru, sistem akan otomatis mendaftarkan akun Anda untuk diverifikasi Admin.</span>
+            </p>
             
             {authError && (
-              <div className="mb-6 p-4 bg-red-50 border border-red-100 rounded-xl text-red-600 text-xs font-medium">
-                {authError}
+              <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl text-red-600 text-xs font-semibold flex items-center gap-2">
+                <ShieldAlert className="w-4 h-4 shrink-0" />
+                <span>{authError}</span>
               </div>
             )}
 
@@ -1058,10 +1062,13 @@ export default function App() {
               ) : (
                 <LogIn className="w-5 h-5 text-blue-600" />
               )}
-              {isLoggingIn ? 'Memproses...' : 'Masuk / Daftar dengan Google'}
+              {isLoggingIn ? 'Memproses...' : 'Lanjutkan dengan Google'}
             </button>
-            <div className="mt-8 flex items-center gap-2 justify-center text-slate-400 text-[10px] uppercase font-bold tracking-widest">
-              <ShieldCheck className="w-3 h-3" /> Verifikasi Otomatis
+
+            <div className="mt-8 pt-6 border-t border-slate-100">
+              <div className="flex items-center gap-2 justify-center text-slate-400 text-[10px] uppercase font-bold tracking-widest">
+                <ShieldCheck className="w-3 h-3" /> Verifikasi Otomatis Keamanan
+              </div>
             </div>
           </div>
         </div>
