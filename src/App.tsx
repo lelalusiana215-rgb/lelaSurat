@@ -94,11 +94,7 @@ export default function App() {
   useEffect(() => {
     const initializeApp = async () => {
       const result = await initFirebase();
-      if (!result.ok) {
-        setDbError('Gagal memuat Firebase: ' + result.error);
-        return;
-      }
-
+      
       try {
         setDbStatus('syncing');
         
@@ -132,14 +128,70 @@ export default function App() {
         setDbStatus('firebase');
         setDbError(null);
       } catch (err: any) {
-        console.error("Firebase load error", err);
-        setDbStatus('error');
-        setDbError(err.message || 'Gagal terhubung ke database Firebase.');
+        console.error("Firebase initial sync failed", err);
+        let parsedError = err.message;
+        try {
+          const json = JSON.parse(err.message);
+          parsedError = json.error;
+        } catch { /* ignore */ }
+
+        if (parsedError?.includes('luring') || parsedError?.includes('offline') || parsedError?.includes('unavailable')) {
+          setDbStatus('local');
+          console.warn("Firebase offline, falling back to local storage");
+        } else {
+          setDbStatus('error');
+          setDbError(parsedError || 'Gagal terhubung ke database. Tekan icon database untuk mencoba lagi.');
+        }
       }
     };
     
     initializeApp();
   }, []);
+
+  const handleRetryDatabase = () => {
+    setActiveTab('buat'); // Ensure we are on a visible tab
+    setDbStatus('syncing');
+    setDbError(null);
+    // Trigger the same initialization logic
+    const initializeApp = async () => {
+      const result = await initFirebase();
+      try {
+        const [fSchoolData, fHistory] = await Promise.all([
+          getSchoolData(),
+          getSuratHistoryList()
+        ]);
+        
+        if (fSchoolData) {
+          setSchoolData({
+            namaInstansi: fSchoolData.namaInstansi || '',
+            alamat: fSchoolData.alamat || '',
+            kontak: fSchoolData.kontak || '',
+            logo: fSchoolData.logo || '',
+            logoKanan: fSchoolData.logoKanan || '',
+          });
+        }
+        
+        if (fHistory && fHistory.length > 0) {
+          setHistory(fHistory.map((h: any) => ({
+            id: h.id,
+            tanggalBuat: h.tanggalBuat,
+            jenisSurat: h.jenisSurat,
+            nomorSurat: h.nomorSurat,
+            perihal: h.perihal,
+            namaTujuan: h.namaTujuan,
+            ...h.formData
+          })));
+        }
+        setDbStatus('firebase');
+      } catch (err: any) {
+        let parsedError = err.message;
+        try { const json = JSON.parse(err.message); parsedError = json.error; } catch { }
+        setDbStatus('error');
+        setDbError(parsedError || 'Koneksi gagal.');
+      }
+    };
+    initializeApp();
+  };
 
   // Efek untuk menyimpan pengaturan
   useEffect(() => {
@@ -148,13 +200,57 @@ export default function App() {
     if (dbStatus === 'firebase') {
       const timeoutId = setTimeout(async () => {
         try {
-          await upsertSchoolData({
+          // Safeguard: Check approximate size before sending
+          const payload = {
             namaInstansi: schoolData.namaInstansi,
             alamat: schoolData.alamat,
             kontak: schoolData.kontak,
             logo: schoolData.logo,
             logoKanan: schoolData.logoKanan
-          });
+          };
+          
+          const sizeEstimate = JSON.stringify(payload).length;
+          
+          // If size is borderline, try to auto-compress the biggest logo
+          if (sizeEstimate > 850000) {
+            console.warn("Payload size close to limit, attempting auto-compression");
+            const compressLogo = async (b64: string): Promise<string> => {
+              if (!b64 || b64.length < 100000) return b64;
+              return new Promise((resolve) => {
+                const img = new Image();
+                img.onload = () => {
+                  const canvas = document.createElement('canvas');
+                  const dim = 180; // Aggressive target
+                  let { width, height } = img;
+                  if (width > dim || height > dim) {
+                    if (width > height) { height = Math.round((height * dim) / width); width = dim; }
+                    else { width = Math.round((width * dim) / height); height = dim; }
+                  }
+                  canvas.width = width; canvas.height = height;
+                  canvas.getContext('2d')?.drawImage(img, 0, 0, width, height);
+                  resolve(canvas.toDataURL('image/jpeg', 0.3));
+                };
+                img.onerror = () => resolve(b64);
+                img.src = b64;
+              });
+            };
+
+            const newLogo = await compressLogo(schoolData.logo);
+            const newLogoKanan = await compressLogo(schoolData.logoKanan);
+            
+            if (newLogo !== schoolData.logo || newLogoKanan !== schoolData.logoKanan) {
+              setSchoolData(prev => ({ ...prev, logo: newLogo, logoKanan: newLogoKanan }));
+              return; // Next effect run will handle the smaller payload
+            }
+          }
+
+          if (sizeEstimate > 980000) {
+            setDbStatus('error');
+            setDbError('Ukuran Data Pengaturan (Logo) terlalu besar (Maks 1MB). Silakan gunakan logo dengan resolusi lebih rendah.');
+            return;
+          }
+
+          await upsertSchoolData(payload);
           if (dbStatus === 'error' && dbError?.includes('size')) {
             setDbError(null);
             setDbStatus('firebase');
@@ -398,10 +494,14 @@ export default function App() {
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, field: string, isSchoolData = false) => {
     const file = e.target.files?.[0];
     if (file) {
+      if (file.size > 2 * 1024 * 1024) {
+        alert("File asal terlalu besar. Harap gunakan gambar di bawah 2MB sebelum dikompresi otomatis.");
+        return;
+      }
       const img = new Image();
       img.onload = () => {
         const canvas = document.createElement('canvas');
-        const MAX_DIM = 400;
+        const MAX_DIM = isSchoolData ? 200 : 350; // Smaller for logos
         let { width, height } = img;
 
         if (width > MAX_DIM || height > MAX_DIM) {
@@ -418,27 +518,22 @@ export default function App() {
         const ctx = canvas.getContext('2d');
         ctx?.drawImage(img, 0, 0, width, height);
 
-        const dataUrl = canvas.toDataURL('image/png');
+        // Try JPEG first for better compression if it's potentially large
+        let dataUrl = canvas.toDataURL('image/jpeg', 0.5);
         
-        // Estimate size (base64 is ~1.33x original)
-        if (dataUrl.length > 450000) { 
-          // If still too large, try JPEG with 0.7 quality
-          const jpegDataUrl = canvas.toDataURL('image/jpeg', 0.7);
-          if (jpegDataUrl.length > 450000) {
-            alert("Gambar logo terlalu besar. Silakan gunakan gambar dengan resolusi lebih rendah atau ukuran file lebih kecil (Maksimal ~400KB per logo).");
+        if (dataUrl.length > 250000) { 
+          // Even smaller and more compressed if still large
+          dataUrl = canvas.toDataURL('image/jpeg', 0.3);
+          if (dataUrl.length > 400000) {
+            alert("Gambar logo masih terlalu besar setelah dikompresi. Silakan gunakan gambar dengan resolusi lebih rendah.");
             return;
           }
-          if (isSchoolData) {
-            setSchoolData(prev => ({ ...prev, [field]: jpegDataUrl }));
-          } else {
-            setFormData(prev => ({ ...prev, [field]: jpegDataUrl }));
-          }
+        }
+        
+        if (isSchoolData) {
+          setSchoolData(prev => ({ ...prev, [field]: dataUrl }));
         } else {
-          if (isSchoolData) {
-            setSchoolData(prev => ({ ...prev, [field]: dataUrl }));
-          } else {
-            setFormData(prev => ({ ...prev, [field]: dataUrl }));
-          }
+          setFormData(prev => ({ ...prev, [field]: dataUrl }));
         }
       };
       img.src = URL.createObjectURL(file);
@@ -898,12 +993,16 @@ export default function App() {
           </div>
         </div>
         <div className="flex items-center gap-4 text-sm font-medium">
-          <div className="flex items-center gap-1.5 px-3 py-1 bg-black/20 rounded-full border border-white/10" title={dbStatus === 'firebase' ? 'Terhubung ke Firebase' : dbError || 'Data disimpan lokal'}>
+          <button 
+            onClick={handleRetryDatabase}
+            className="flex items-center gap-1.5 px-3 py-1 bg-black/20 rounded-full border border-white/10 hover:bg-black/30 transition-colors" 
+            title={dbError || (dbStatus === 'firebase' ? 'Terhubung ke Firebase' : 'Mode Offline')}
+          >
             <Database className={`w-3.5 h-3.5 ${dbStatus === 'firebase' ? 'text-emerald-400' : dbStatus === 'syncing' ? 'text-amber-400 animate-pulse' : dbStatus === 'error' ? 'text-red-400' : 'text-slate-400'}`} />
             <span className="text-xs text-white/90 uppercase tracking-wider">
-              {dbStatus === 'firebase' ? 'Firebase' : dbStatus === 'syncing' ? 'Syncing...' : dbStatus === 'error' ? 'Db Error' : 'Local'}
+              {dbStatus === 'firebase' ? 'Firebase' : dbStatus === 'syncing' ? 'Syncing...' : dbStatus === 'error' ? 'Retry' : 'Local'}
             </span>
-          </div>
+          </button>
           <span>Tahun Ajaran {new Date().getFullYear()}</span>
         </div>
       </header>
@@ -918,6 +1017,21 @@ export default function App() {
         </aside>
 
         <main className="flex-1 overflow-y-auto relative bg-slate-100 no-print">
+          {dbStatus === 'error' && (
+            <div className="bg-red-50 border-b border-red-200 p-3 flex items-center justify-between no-print">
+              <div className="flex items-center gap-2 text-red-700 text-sm">
+                <Database className="w-4 h-4" />
+                <span className="font-medium">Kesalahan Database:</span>
+                <span>{dbError}</span>
+              </div>
+              <button 
+                onClick={handleRetryDatabase}
+                className="text-xs bg-red-600 text-white px-3 py-1 rounded hover:bg-red-700 font-semibold"
+              >
+                Coba Lagi
+              </button>
+            </div>
+          )}
           {activeTab === 'buat' && (
             <div className="p-6 flex flex-col lg:flex-row gap-6 h-full items-start">
               {/* Form Panel */}

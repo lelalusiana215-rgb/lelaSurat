@@ -1,9 +1,10 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { 
-  getFirestore, 
+  initializeFirestore, 
+  persistentLocalCache, 
+  persistentMultipleTabManager,
   doc, 
-  getDocFromServer, 
   setDoc, 
   getDoc, 
   getDocs, 
@@ -11,12 +12,20 @@ import {
   query, 
   orderBy, 
   deleteDoc,
-  serverTimestamp
+  serverTimestamp,
+  type Firestore
 } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId); 
+
+// Initialize Firestore with specific settings for stability in containerized/web environments
+console.log("Initializing Firestore with DB:", firebaseConfig.firestoreDatabaseId || "(default)");
+export const db: Firestore = initializeFirestore(app, {
+  experimentalForceLongPolling: true,
+  localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })
+}, firebaseConfig.firestoreDatabaseId);
+
 export const auth = getAuth(app);
 
 export enum OperationType {
@@ -40,8 +49,19 @@ interface FirestoreErrorInfo {
 }
 
 function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errMessage = error instanceof Error ? error.message : String(error);
+  
+  let friendlyError = errMessage;
+  if (errMessage.includes('permission-denied')) {
+    friendlyError = 'Akses ditolak (Permission Denied). Periksa konfigurasi keamanan Firebase.';
+  } else if (errMessage.includes('unavailable') || errMessage.includes('offline')) {
+    friendlyError = 'Database sedang luring atau tidak dapat dijangkau.';
+  } else if (errMessage.includes('quota-exceeded')) {
+    friendlyError = 'Kuota database terlampaui.';
+  }
+
   const errInfo: FirestoreErrorInfo = {
-    error: error instanceof Error ? error.message : String(error),
+    error: friendlyError,
     authInfo: {
       userId: auth.currentUser?.uid,
       email: auth.currentUser?.email,
@@ -50,26 +70,22 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
     operationType,
     path
   };
-  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  
+  console.error(`Firebase [${operationType}] Error on [${path}]:`, errMessage);
+  
+  if (errMessage.includes('offline') || errMessage.includes('unavailable')) {
+    // Return a special error instead of throwing to allow local mode fallback
+    return { error: friendlyError, isOffline: true };
+  }
+  
   throw new Error(JSON.stringify(errInfo));
 }
 
 let initialized = false;
 
 export const initFirebase = async () => {
-  if (initialized) return { ok: true };
-  try {
-    await getDocFromServer(doc(db, 'test', 'connection')).catch(err => {
-      if (err.message.includes('the client is offline')) {
-         console.warn("Client is offline or check rules");
-      }
-    });
-    initialized = true;
-    return { ok: true };
-  } catch (e: any) {
-    console.error("Failed to initialize Firebase", e);
-    return { ok: false, error: e.message };
-  }
+  initialized = true;
+  return { ok: true };
 };
 
 export const getFirebaseDb = () => db;
@@ -95,7 +111,9 @@ export const getSchoolData = async () => {
     const snap = await getDoc(docRef);
     return snap.exists() ? snap.data() : null;
   } catch (e) {
-    handleFirestoreError(e, OperationType.GET, path);
+    const err = handleFirestoreError(e, OperationType.GET, path);
+    if (typeof err === 'object' && 'isOffline' in err) return null; // Fallback to local
+    throw e;
   }
 };
 
@@ -107,22 +125,32 @@ export const addSuratHistory = async (surat: any) => {
     await setDoc(docRef, {
       ...surat,
       id,
+      authorId: auth.currentUser?.uid || 'anonymous',
       timestamp: serverTimestamp()
     });
     return id;
   } catch (e) {
-    handleFirestoreError(e, OperationType.WRITE, path);
+    const err = handleFirestoreError(e, OperationType.WRITE, path);
+    if (typeof err === 'object' && 'isOffline' in err) return null;
+    throw e;
   }
 };
 
 export const getSuratHistoryList = async () => {
   const path = 'surat_history';
   try {
-    const q = query(collection(db, path), orderBy('tanggalBuat', 'desc'));
+    const q = query(collection(db, path));
     const snap = await getDocs(q);
-    return snap.docs.map(d => ({ ...d.data(), id: d.id }));
+    const data = snap.docs.map(d => ({ ...d.data(), id: d.id }));
+    return data.sort((a: any, b: any) => {
+      const dateA = a.tanggalBuat ? new Date(a.tanggalBuat).getTime() : 0;
+      const dateB = b.tanggalBuat ? new Date(b.tanggalBuat).getTime() : 0;
+      return dateB - dateA;
+    });
   } catch (e) {
-    handleFirestoreError(e, OperationType.LIST, path);
+    const err = handleFirestoreError(e, OperationType.LIST, path);
+    if (typeof err === 'object' && 'isOffline' in err) return [];
+    throw e;
   }
 };
 
