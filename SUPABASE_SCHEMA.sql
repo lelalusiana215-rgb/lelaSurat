@@ -1,5 +1,13 @@
 -- Run this SQL in your Supabase SQL Editor to create the required tables
 
+-- Table for User Permissions
+CREATE TABLE user_profiles (
+  id uuid PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  email text,
+  status text DEFAULT 'pending', -- 'pending', 'approved', 'rejected'
+  created_at timestamp with time zone DEFAULT now()
+);
+
 -- Table for School Data / KOP Surat
 CREATE TABLE school_data (
   id integer PRIMARY KEY DEFAULT 1,
