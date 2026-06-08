@@ -21,9 +21,21 @@ export const initSupabase = async () => {
 
     if (url && key) {
       try {
-        const validUrl = new URL(url);
+        // Clean the URL
+        let cleanUrl = url.trim();
+        // Remove trailing slash
+        if (cleanUrl.endsWith('/')) {
+          cleanUrl = cleanUrl.slice(0, -1);
+        }
+        
+        // Ensure starting with https://
+        if (!cleanUrl.startsWith('http')) {
+          cleanUrl = 'https://' + cleanUrl;
+        }
+
+        const validUrl = new URL(cleanUrl);
         if (validUrl.protocol === 'http:' || validUrl.protocol === 'https:') {
-          supabase = createClient(url, key);
+          supabase = createClient(cleanUrl, key.trim());
           return true;
         }
       } catch (e) {
