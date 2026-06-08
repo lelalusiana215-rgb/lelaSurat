@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { getSupabase } from '../lib/supabase';
-import { Mail, Lock, Loader2, ArrowRight, Eye, EyeOff } from 'lucide-react';
+import { Mail, Lock, Loader2, ArrowRight, Eye, EyeOff, AlertTriangle } from 'lucide-react';
+import SupabaseSetupGuide from './SupabaseSetupGuide';
 
 export default function Auth({ onLogin }: { onLogin: (user: any) => void }) {
   const [isLogin, setIsLogin] = useState(true);
@@ -10,18 +11,16 @@ export default function Auth({ onLogin }: { onLogin: (user: any) => void }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
+  const supabase = getSupabase();
+  const isDbConnected = !!supabase;
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isDbConnected) return;
+
     setLoading(true);
     setError('');
     
-    const supabase = getSupabase();
-    if (!supabase) {
-      setError('Database tidak terhubung. Periksa konfigurasi Supabase Anda.');
-      setLoading(false);
-      return;
-    }
-
     try {
       if (isLogin) {
         const { data, error } = await supabase.auth.signInWithPassword({
@@ -31,7 +30,10 @@ export default function Auth({ onLogin }: { onLogin: (user: any) => void }) {
         
         if (error) {
           if (error.message.includes('Invalid login credentials')) {
-            throw new Error('Email atau password salah. Jika Anda belum mendaftar, silakan pilih menu "Daftar di sini".');
+            throw new Error('Email atau password salah. Jika Anda belum punya akun, silakan klik "Daftar di sini" terlebih dahulu.');
+          }
+          if (error.message.includes('Email not confirmed')) {
+            throw new Error('Akun Anda ditemukan, tetapi email belum dikonfirmasi. Periksa kotak masuk email Anda atau minta Admin menonaktifkan "Email Confirmation" di Supabase.');
           }
           throw error;
         }
@@ -113,22 +115,36 @@ export default function Auth({ onLogin }: { onLogin: (user: any) => void }) {
 
   return (
     <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4">
-      <div className="max-w-md w-full bg-white rounded-2xl shadow-xl overflow-hidden border border-slate-200">
-        <div className="bg-blue-800 p-8 text-center">
-          <h2 className="text-3xl font-bold text-white mb-2">e-Surat TU</h2>
-          <p className="text-blue-200">
-            {isLogin ? 'Login ke sistem persuratan' : 'Daftar akun baru'}
-          </p>
-        </div>
+      <div className={`max-w-md w-full transition-all duration-500 ${!isDbConnected ? 'lg:max-w-4xl' : ''}`}>
+        {!isDbConnected && (
+          <div className="mb-6 animate-in fade-in slide-in-from-top-4 duration-700">
+             <SupabaseSetupGuide />
+          </div>
+        )}
         
-        <div className="p-8">
-          {error && (
-            <div className="mb-4 p-3 bg-red-50 text-red-600 rounded-lg text-sm border border-red-100">
-              {error}
-            </div>
-          )}
+        <div className="bg-white rounded-2xl shadow-xl overflow-hidden border border-slate-200 w-full max-w-md mx-auto">
+          <div className="bg-blue-800 p-8 text-center">
+            <h2 className="text-3xl font-bold text-white mb-2">e-Surat TU</h2>
+            <p className="text-blue-200">
+              {!isDbConnected ? 'Database Belum Terhubung' : isLogin ? 'Login ke sistem persuratan' : 'Daftar akun baru'}
+            </p>
+          </div>
           
-          <form onSubmit={handleSubmit} className="space-y-5">
+          <div className="p-8">
+            {!isDbConnected && (
+               <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-lg flex gap-3 text-amber-800">
+                  <AlertTriangle className="w-5 h-5 flex-shrink-0" />
+                  <p className="text-sm">Aplikasi memerlukan database Supabase untuk menyimpan data dan autentikasi. Silakan ikuti panduan di atas.</p>
+               </div>
+            )}
+            
+            {error && (
+              <div className="mb-4 p-3 bg-red-50 text-red-600 rounded-lg text-sm border border-red-100">
+                {error}
+              </div>
+            )}
+            
+            <form onSubmit={handleSubmit} className={`space-y-5 ${!isDbConnected ? 'opacity-40 pointer-events-none' : ''}`}>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Email</label>
               <div className="relative">
@@ -206,6 +222,7 @@ export default function Auth({ onLogin }: { onLogin: (user: any) => void }) {
             </button>
           </div>
         </div>
+      </div>
       </div>
     </div>
   );
