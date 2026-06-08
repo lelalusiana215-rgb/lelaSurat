@@ -17,14 +17,9 @@ import {
   FileUp,
   FileSpreadsheet,
   X,
-  Database,
-  ShieldAlert,
-  LogOut
+  Database
 } from 'lucide-react';
 import { initSupabase, getSupabase } from './lib/supabase';
-import Auth from './components/Auth';
-import PendingApproval from './components/PendingApproval';
-import AdminPanel from './components/AdminPanel';
 
 const safeGetStorage = (key: string) => {
   try {
@@ -43,9 +38,7 @@ const safeSetStorage = (key: string, value: string) => {
 };
 
 export default function App() {
-  const [authUser, setAuthUser] = useState<any>(null);
-  const [authStatus, setAuthStatus] = useState<'loading'|'verified'|'pending'|'not_logged_in'>('loading');
-  const [activeTab, setActiveTab] = useState('buat'); // buat, riwayat, pengaturan, admin
+  const [activeTab, setActiveTab] = useState('buat'); // buat, riwayat, pengaturan
   const [isGenerating, setIsGenerating] = useState(false);
   const [dbStatus, setDbStatus] = useState<'local' | 'supabase' | 'syncing'>('local');
   
@@ -90,75 +83,51 @@ export default function App() {
   });
 
   // Load from Supabase on mount if configured
-  const checkAuthAndLoad = async () => {
-    const isOk = await initSupabase();
-    if (!isOk) {
-       setAuthStatus('not_logged_in'); 
-       return;
-    }
-
-    const supabase = getSupabase();
-    if (!supabase) return;
-    
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      
-      if (session) {
-         setAuthUser(session.user);
-         if (session.user.email === 'lelalusiana215@gmail.com') {
-             setAuthStatus('verified');
-         } else {
-             const { data: profile } = await supabase.from('user_profiles').select('*').eq('id', session.user.id).single();
-             if (profile && profile.status === 'approved') {
-                 setAuthStatus('verified');
-             } else {
-                 setAuthStatus('pending');
-             }
-         }
-      } else {
-         setAuthStatus('not_logged_in');
-         return; // Wait until logged in to load data
-      }
-
-      setDbStatus('syncing');
-      const [schoolRes, historyRes] = await Promise.all([
-        supabase.from('school_data').select('*').eq('id', 1).single(),
-        supabase.from('surat_history').select('*').order('tanggal_buat', { ascending: false })
-      ]);
-      
-      if (schoolRes.data) {
-        setSchoolData({
-          namaInstansi: schoolRes.data.nama_instansi || '',
-          alamat: schoolRes.data.alamat || '',
-          kontak: schoolRes.data.kontak || '',
-          logo: schoolRes.data.logo || '',
-          logoKanan: schoolRes.data.logo_kanan || '',
-        });
-      }
-      
-      if (historyRes.data) {
-        setHistory(historyRes.data.map((h: any) => ({
-          id: h.id,
-          tanggalBuat: h.tanggal_buat,
-          jenisSurat: h.jenis_surat,
-          nomorSurat: h.nomor_surat,
-          perihal: h.perihal,
-          namaTujuan: h.nama_tujuan,
-          ...h.form_data
-        })));
-      }
-      
-      setDbStatus('supabase');
-    } catch (err) {
-      console.error("Supabase load error", err);
-      setDbStatus('local'); // Fallback on error
-      // Jika internet putus, kita masih bisa pakai status sebelumnya
-      if (authStatus === 'loading') setAuthStatus('verified'); 
-    }
-  };
-
   useEffect(() => {
-    checkAuthAndLoad();
+    const initializeApp = async () => {
+      const isOk = await initSupabase();
+      if (!isOk) return;
+
+      const supabase = getSupabase();
+      if (!supabase) return;
+      
+      try {
+        setDbStatus('syncing');
+        const [schoolRes, historyRes] = await Promise.all([
+          supabase.from('school_data').select('*').eq('id', 1).single(),
+          supabase.from('surat_history').select('*').order('tanggal_buat', { ascending: false })
+        ]);
+        
+        if (schoolRes.data) {
+          setSchoolData({
+            namaInstansi: schoolRes.data.nama_instansi || '',
+            alamat: schoolRes.data.alamat || '',
+            kontak: schoolRes.data.kontak || '',
+            logo: schoolRes.data.logo || '',
+            logoKanan: schoolRes.data.logo_kanan || '',
+          });
+        }
+        
+        if (historyRes.data) {
+          setHistory(historyRes.data.map(h => ({
+            id: h.id,
+            tanggalBuat: h.tanggal_buat,
+            jenisSurat: h.jenis_surat,
+            nomorSurat: h.nomor_surat,
+            perihal: h.perihal,
+            namaTujuan: h.nama_tujuan,
+            ...h.form_data
+          })));
+        }
+        
+        setDbStatus('supabase');
+      } catch (err) {
+        console.error("Supabase load error", err);
+        setDbStatus('local'); // Fallback on error
+      }
+    };
+    
+    initializeApp();
   }, []);
 
   // Efek untuk menyimpan pengaturan
@@ -415,15 +384,34 @@ export default function App() {
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, field: string, isSchoolData = false) => {
     const file = e.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const MAX_DIM = 400;
+        let { width, height } = img;
+
+        if (width > MAX_DIM || height > MAX_DIM) {
+          if (width > height) {
+            height = Math.round((height * MAX_DIM) / width);
+            width = MAX_DIM;
+          } else {
+            width = Math.round((width * MAX_DIM) / height);
+            height = MAX_DIM;
+          }
+        }
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx?.drawImage(img, 0, 0, width, height);
+
+        const dataUrl = canvas.toDataURL('image/png');
         if (isSchoolData) {
-          setSchoolData(prev => ({ ...prev, [field]: reader.result as string }));
+          setSchoolData(prev => ({ ...prev, [field]: dataUrl }));
         } else {
-          setFormData(prev => ({ ...prev, [field]: reader.result as string }));
+          setFormData(prev => ({ ...prev, [field]: dataUrl }));
         }
       };
-      reader.readAsDataURL(file);
+      img.src = URL.createObjectURL(file);
     }
   };
 
@@ -484,6 +472,11 @@ export default function App() {
 
     if (dbStatus === 'supabase') {
       try {
+        const payloadRecord = { ...newRecord };
+        if (payloadRecord.ttdDigital && payloadRecord.ttdDigital.length > 500000) {
+           payloadRecord.ttdDigital = ''; // Exclude large signature
+        }
+
         const supabase = getSupabase();
         if (supabase) {
           const { data, error } = await supabase.from('surat_history').insert({
@@ -492,7 +485,7 @@ export default function App() {
             perihal: formData.perihal,
             nama_tujuan: formData.namaTujuan,
             tanggal_buat: newRecord.tanggalBuat,
-            form_data: newRecord
+            form_data: payloadRecord
           }).select().single();
           
           if (error) throw error;
@@ -832,32 +825,6 @@ export default function App() {
   const isSK = formData.jenisSurat === 'Surat Keputusan';
   const isEdaran = formData.jenisSurat === 'Surat Edaran';
 
-  if (authStatus === 'loading') {
-    return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <div className="text-center">
-          <Loader2 className="w-10 h-10 animate-spin text-blue-600 mx-auto mb-4" />
-          <p className="text-slate-500 font-medium">Memuat sistem persuratan...</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (authStatus === 'not_logged_in') {
-    return <Auth onLogin={(user) => {
-      setAuthUser(user);
-      checkAuthAndLoad();
-    }} />;
-  }
-
-  if (authStatus === 'pending') {
-    return <PendingApproval user={authUser} onLogout={async () => {
-      await getSupabase()?.auth.signOut();
-      setAuthUser(null);
-      setAuthStatus('not_logged_in');
-    }} />;
-  }
-
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans text-slate-800">
       <style dangerouslySetInnerHTML={{__html: `
@@ -925,43 +892,10 @@ export default function App() {
             <SidebarButton active={activeTab === 'buat'} onClick={() => setActiveTab('buat')} icon={<FileText className="w-5 h-5" />} label="Buat Surat" />
             <SidebarButton active={activeTab === 'riwayat'} onClick={() => setActiveTab('riwayat')} icon={<History className="w-5 h-5" />} label="Riwayat Surat" />
             <SidebarButton active={activeTab === 'pengaturan'} onClick={() => setActiveTab('pengaturan')} icon={<Settings className="w-5 h-5" />} label="Pengaturan KOP" />
-            
-            {authUser?.email === 'lelalusiana215@gmail.com' && (
-               <SidebarButton active={activeTab === 'admin'} onClick={() => setActiveTab('admin')} icon={<ShieldAlert className="w-5 h-5" />} label="Admin Panel" />
-            )}
           </nav>
-
-          <div className="p-4 border-t border-slate-200">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-bold">
-                {authUser?.email?.charAt(0).toUpperCase() || 'U'}
-              </div>
-              <div className="overflow-hidden">
-                <p className="text-xs font-semibold text-slate-700 truncate">{authUser?.email}</p>
-                <p className="text-[10px] text-slate-500 truncate">{authUser?.email === 'lelalusiana215@gmail.com' ? 'Admin / Pemilik' : 'Staf TU'}</p>
-              </div>
-            </div>
-            
-            <button 
-              onClick={async () => {
-                await getSupabase()?.auth.signOut();
-                setAuthUser(null);
-                setAuthStatus('not_logged_in');
-              }}
-              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg transition-colors font-medium border border-transparent hover:border-red-100"
-            >
-              <LogOut className="w-4 h-4" /> Keluar
-            </button>
-          </div>
         </aside>
 
         <main className="flex-1 overflow-y-auto relative bg-slate-100 no-print">
-          {activeTab === 'admin' && (
-            <div className="p-6 h-full items-start">
-               <AdminPanel />
-            </div>
-          )}
-
           {activeTab === 'buat' && (
             <div className="p-6 flex flex-col lg:flex-row gap-6 h-full items-start">
               {/* Form Panel */}
