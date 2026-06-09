@@ -1,0 +1,22 @@
+{
+  "entities": {
+    "AuthorizedUser": {
+      "title": "Authorized User",
+      "description": "Users allowed to access the application",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string", "description": "User email" },
+        "isAuthorized": { "type": "boolean", "description": "Whether the user is allowed to access" },
+        "role": { "type": "string", "enum": ["admin", "user"], "description": "User role" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["email", "isAuthorized"]
+    }
+  },
+  "firestore": {
+    "/authorized_users/{email}": {
+      "schema": "AuthorizedUser",
+      "description": "List of authorized users"
+    }
+  }
+}

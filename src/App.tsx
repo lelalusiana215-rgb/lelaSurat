@@ -17,7 +17,10 @@ import {
   FileUp,
   FileSpreadsheet,
   X,
-  Database
+  Database,
+  Lock,
+  Key,
+  ShieldCheck
 } from 'lucide-react';
 import { initSupabase, getSupabase } from './lib/supabase';
 
@@ -38,6 +41,12 @@ const safeSetStorage = (key: string, value: string) => {
 };
 
 export default function App() {
+  const [isAuthorized, setIsAuthorized] = useState(() => {
+    return safeGetStorage('tu_authorized') === 'true';
+  });
+  const [accessKey, setAccessKey] = useState('');
+  const [loginError, setLoginError] = useState(false);
+
   const [activeTab, setActiveTab] = useState('buat'); // buat, riwayat, pengaturan
   const [isGenerating, setIsGenerating] = useState(false);
   const [dbStatus, setDbStatus] = useState<'local' | 'supabase' | 'syncing' | 'error'>('local');
@@ -587,6 +596,28 @@ export default function App() {
     window.print();
   };
 
+  const handleLogin = (e: React.FormEvent) => {
+    e.preventDefault();
+    const masterKey = import.meta.env.VITE_APP_ACCESS_KEY || 'ESTATU2026';
+    
+    if (accessKey === masterKey) {
+      setIsAuthorized(true);
+      safeSetStorage('tu_authorized', 'true');
+      setLoginError(false);
+    } else {
+      setLoginError(true);
+      setTimeout(() => setLoginError(false), 2000);
+    }
+  };
+
+  const handleLogout = () => {
+    if (window.confirm("Yakin ingin keluar dan mengunci aplikasi?")) {
+      setIsAuthorized(false);
+      safeSetStorage('tu_authorized', 'false');
+      setAccessKey('');
+    }
+  };
+
   const exportToWord = () => {
     const printArea = document.getElementById('printable-area');
     if (!printArea) return;
@@ -858,6 +889,71 @@ export default function App() {
   const isSK = formData.jenisSurat === 'Surat Keputusan';
   const isEdaran = formData.jenisSurat === 'Surat Edaran';
 
+  if (!isAuthorized) {
+    return (
+      <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4 font-sans">
+        <div className="max-w-md w-full bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
+          <div className="bg-blue-800 p-8 text-center text-white">
+            <div className="inline-flex items-center justify-center w-16 h-16 bg-blue-700 rounded-full mb-4 shadow-inner">
+              <Lock className="w-8 h-8 text-blue-100" />
+            </div>
+            <h1 className="text-2xl font-bold">e-Surat TU</h1>
+            <p className="text-blue-200 text-sm mt-1">Sistem Generator Surat Kedinasan</p>
+          </div>
+          
+          <form onSubmit={handleLogin} className="p-8 space-y-6">
+            <div className="text-center">
+              <h2 className="text-slate-800 font-bold text-lg mb-2">Aktivasi Produk</h2>
+              <p className="text-slate-500 text-sm">Silakan masukkan Kunci Akses untuk menggunakan aplikasi ini.</p>
+            </div>
+
+            <div className="space-y-4">
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <Key className="h-5 w-5 text-slate-400" />
+                </div>
+                <input
+                  type="password"
+                  value={accessKey}
+                  onChange={(e) => setAccessKey(e.target.value)}
+                  placeholder="Masukkan Kunci Akses..."
+                  className={`block w-full pl-10 pr-3 py-3 border rounded-xl leading-5 bg-slate-50 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all ${loginError ? 'border-red-500 animate-shake' : 'border-slate-200'}`}
+                />
+              </div>
+
+              {loginError && (
+                <p className="text-red-500 text-xs text-center font-bold">Kunci Akses tidak valid!</p>
+              )}
+
+              <button
+                type="submit"
+                className="w-full flex justify-center py-3 px-4 border border-transparent rounded-xl shadow-sm text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors"
+              >
+                Buka Akses Sekarang
+              </button>
+            </div>
+
+            <div className="pt-4 border-t border-slate-100 text-center">
+              <p className="text-[10pt] text-slate-400">
+                Hubungi Admin untuk mendapatkan lisensi.<br/>
+                &copy; {new Date().getFullYear()} e-Surat Digital Solution.
+              </p>
+            </div>
+          </form>
+        </div>
+        
+        <style dangerouslySetInnerHTML={{ __html: `
+          @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            10%, 30%, 50%, 70%, 90% { transform: translateX(-5px); }
+            20%, 40%, 60%, 80% { transform: translateX(5px); }
+          }
+          .animate-shake { animation: shake 0.4s cubic-bezier(.36,.07,.19,.97) both; }
+        `}} />
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans text-slate-800">
       <style dangerouslySetInnerHTML={{__html: `
@@ -909,6 +1005,14 @@ export default function App() {
           </div>
         </div>
         <div className="flex items-center gap-4 text-sm font-medium">
+          <button 
+            onClick={handleLogout}
+            className="flex items-center gap-2 px-3 py-1 bg-white/10 hover:bg-white/20 rounded-full border border-white/20 transition-colors"
+            title="Keluar / Kunci Aplikasi"
+          >
+            <ShieldCheck className="w-3.5 h-3.5 text-blue-300" />
+            <span className="text-xs">Berlisensi</span>
+          </button>
           <div className="flex items-center gap-1.5 px-3 py-1 bg-black/20 rounded-full border border-white/10" title={dbStatus === 'supabase' ? 'Terhubung ke Supabase' : dbError || 'Data disimpan lokal'}>
             <Database className={`w-3.5 h-3.5 ${dbStatus === 'supabase' ? 'text-emerald-400' : dbStatus === 'syncing' ? 'text-amber-400 animate-pulse' : dbStatus === 'error' ? 'text-red-400' : 'text-slate-400'}`} />
             <span className="text-xs text-white/90 uppercase tracking-wider">
