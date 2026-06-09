@@ -14,10 +14,15 @@ async function startServer() {
 
   // Dynamic ENV variables for client-side
   app.get("/api/env", (req, res) => {
+    console.log("Health check: /api/env called");
     res.json({
-      supabaseUrl: process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL,
-      supabaseAnonKey: process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY
+      supabaseUrl: process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || "",
+      supabaseAnonKey: process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || ""
     });
+  });
+
+  app.get("/api/health", (req, res) => {
+    res.json({ status: "ok", time: new Date().toISOString() });
   });
 
   // API route for Gemini generation
@@ -126,4 +131,7 @@ Instruksi sangat penting berdasarkan Jenis Surat:
   });
 }
 
-startServer();
+startServer().catch(err => {
+  console.error("Failed to start server:", err);
+  process.exit(1);
+});

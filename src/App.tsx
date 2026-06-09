@@ -89,10 +89,13 @@ export default function App() {
       const result = await initSupabase();
       if (!result.ok) {
         if (result.error === 'CONFIG_PLACEHOLDER' || result.error === 'MISSING_CONFIG') {
-          setDbError('Konfigurasi Supabase belum diset di Settings.');
+          console.log('Supabase check: configuration and placeholders not set.');
+        } else if (result.error === 'DASHBOARD_URL') {
+          console.warn('Supabase URL looks like a dashboard URL (app.supabase.com) instead of an API URL.');
         } else {
-          setDbError('Gagal memuat konfigurasi ENV.');
+          console.warn('Supabase initialization failed:', result.error);
         }
+        setDbStatus('local');
         return;
       }
 
@@ -101,16 +104,20 @@ export default function App() {
       
       try {
         setDbStatus('syncing');
+        const supabase = getSupabase();
+        if (!supabase) {
+          setDbStatus('local');
+          return;
+        }
+
         const [schoolRes, historyRes] = await Promise.all([
           supabase.from('school_data').select('*').eq('id', 1).single(),
           supabase.from('surat_history').select('*').order('tanggal_buat', { ascending: false })
         ]);
 
-        if (schoolRes.error && schoolRes.error.code !== 'PGRST116') { // PGRST116 is no rows found
-           throw new Error(schoolRes.error.message);
-        }
-        
-        if (schoolRes.data) {
+        if (schoolRes.error && schoolRes.error.code !== 'PGRST116') {
+          console.warn('Supabase school_data error:', schoolRes.error.message);
+        } else if (schoolRes.data) {
           setSchoolData({
             namaInstansi: schoolRes.data.nama_instansi || '',
             alamat: schoolRes.data.alamat || '',
@@ -120,9 +127,9 @@ export default function App() {
           });
         }
         
-        if (historyRes.error) throw historyRes.error;
-
-        if (historyRes.data) {
+        if (historyRes.error) {
+          console.warn('Supabase surat_history error:', historyRes.error.message);
+        } else if (historyRes.data) {
           setHistory(historyRes.data.map(h => ({
             id: h.id,
             tanggalBuat: h.tanggal_buat,
@@ -137,9 +144,9 @@ export default function App() {
         setDbStatus('supabase');
         setDbError(null);
       } catch (err: any) {
-        console.error("Supabase load error", err);
-        setDbStatus('error');
-        setDbError(err.message || 'Gagal terhubung ke database Supabase.');
+        console.warn("Supabase data load failed. Falling back to local storage.", err.message);
+        setDbStatus('local');
+        // Don't set dbError here to keep the UI clean, just log it
       }
     };
     
