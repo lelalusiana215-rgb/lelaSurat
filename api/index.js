@@ -15,14 +15,7 @@ const app = express();
     });
   });
 
-const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY,
-  httpOptions: {
-    headers: {
-      'User-Agent': 'aistudio-build',
-    }
-  }
-});
+const ai = new GoogleGenAI(process.env.GEMINI_API_KEY!);
 
 app.post('/api/generate-letter', async (req, res) => {
   try {
@@ -51,21 +44,22 @@ Instruksi sangat penting berdasarkan Jenis Surat:
 
     const userQuery = `Jenis Surat: ${jenisSurat}\nPerihal / Tentang: ${perihal}\nTujuan Surat: ${namaTujuan || 'Pihak Terkait'}`;
 
-    const modelsToTry = ["gemini-3.5-flash", "gemini-flash-latest", "gemini-3.1-flash-lite"];
-    let response;
+    const modelsToTry = ["gemini-1.5-flash", "gemini-1.5-pro"];
+    let responseText = "";
     let lastError;
 
     for (const modelName of modelsToTry) {
       let retries = 2;
       while (retries > 0) {
         try {
-          response = await ai.models.generateContent({
+          const model = ai.getGenerativeModel({ 
             model: modelName,
-            contents: userQuery,
-            config: {
-              systemInstruction: systemPrompt
-            }
+            systemInstruction: systemPrompt
           });
+          
+          const result = await model.generateContent(userQuery);
+          const response = await result.response;
+          responseText = response.text();
           break;
         } catch (err) {
           lastError = err;
@@ -84,21 +78,16 @@ Instruksi sangat penting berdasarkan Jenis Surat:
           break;
         }
       }
-      if (response) break;
+      if (responseText) break;
     }
 
-    if (!response) {
+    if (!responseText) {
       if (lastError?.status === 429 || lastError?.message?.includes('429')) {
         return res.status(429).json({ 
           error: "Kuota harian Gemini API telah habis atau terlalu banyak permintaan. Silakan coba lagi besok atau beberapa saat lagi." 
         });
       }
       throw lastError || new Error("Gagal menyusun surat otomatis setelah beberapa kali percobaan.");
-    }
-
-    const responseText = response.text;
-    if (!responseText) {
-      throw new Error("No text returned from AI");
     }
 
     res.json({ text: responseText.replace(/```[a-z]*\n?/gi, '').trim() });

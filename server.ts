@@ -13,8 +13,11 @@ async function startServer() {
   app.use(express.json());
 
   // Dynamic ENV variables for client-side
-  app.get("/api/health", (req, res) => {
-    res.json({ status: "ok" });
+  app.get("/api/env", (req, res) => {
+    res.json({
+      supabaseUrl: process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL,
+      supabaseAnonKey: process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY
+    });
   });
 
   // API route for Gemini generation
@@ -26,16 +29,8 @@ async function startServer() {
         return res.status(500).json({ error: "GEMINI_API_KEY is not configured" });
       }
 
-      const ai = new GoogleGenAI({
-        apiKey: process.env.GEMINI_API_KEY,
-        httpOptions: {
-          headers: {
-            'User-Agent': 'aistudio-build',
-          }
-        }
-      });
-
-
+      const genAI = new GoogleGenAI(process.env.GEMINI_API_KEY!);
+      
       const systemPrompt = `Anda adalah asisten Tata Usaha sekolah yang profesional. Tugas Anda adalah membantu menyusun ISI POKOK surat kedinasan.
 
 Instruksi sangat penting berdasarkan Jenis Surat:
@@ -56,21 +51,22 @@ Instruksi sangat penting berdasarkan Jenis Surat:
       const userQuery = `Jenis Surat: ${jenisSurat}\nPerihal / Tentang: ${perihal}\nTujuan Surat: ${namaTujuan || 'Pihak Terkait'}`;
 
       // Retry mechanism for 503 and 429 errors with model fallbacks
-      const modelsToTry = ["gemini-3.5-flash", "gemini-flash-latest", "gemini-3.1-flash-lite"];
-      let response;
+      const modelsToTry = ["gemini-1.5-flash", "gemini-1.5-pro"];
+      let responseText = "";
       let lastError;
 
       for (const modelName of modelsToTry) {
         let retries = 2;
         while (retries > 0) {
           try {
-            response = await ai.models.generateContent({
+            const model = genAI.getGenerativeModel({ 
               model: modelName,
-              contents: userQuery,
-              config: {
-                systemInstruction: systemPrompt
-              }
+              systemInstruction: systemPrompt
             });
+            
+            const result = await model.generateContent(userQuery);
+            const response = await result.response;
+            responseText = response.text();
             break; // Success!
           } catch (err: any) {
             lastError = err;
@@ -90,21 +86,16 @@ Instruksi sangat penting berdasarkan Jenis Surat:
             break; // Move to next model
           }
         }
-        if (response) break;
+        if (responseText) break;
       }
 
-      if (!response) {
+      if (!responseText) {
         if (lastError?.status === 429 || lastError?.message?.includes('429')) {
           return res.status(429).json({ 
             error: "Kuota harian Gemini API telah habis atau terlalu banyak permintaan. Silakan coba lagi besok atau beberapa saat lagi." 
           });
         }
         throw lastError || new Error("Gagal menyusun surat otomatis setelah beberapa kali percobaan.");
-      }
-
-      const responseText = response.text;
-      if (!responseText) {
-        throw new Error("No text returned from AI");
       }
 
       res.json({ text: responseText.replace(/```[a-z]*\n?/gi, '').trim() });

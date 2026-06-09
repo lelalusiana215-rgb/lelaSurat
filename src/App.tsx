@@ -17,32 +17,9 @@ import {
   FileUp,
   FileSpreadsheet,
   X,
-  Database,
-  Users,
-  LogOut,
-  ShieldCheck,
-  ShieldAlert,
-  Clock,
-  LogIn
+  Database
 } from 'lucide-react';
-import { 
-  initFirebase, 
-  getSchoolData, 
-  upsertSchoolData, 
-  addSuratHistory, 
-  getSuratHistoryList, 
-  deleteSuratHistory,
-  auth,
-  loginWithGoogle,
-  logout,
-  getUserProfile,
-  requestAccess,
-  getAllUserProfiles,
-  updateUserStatus,
-  ADMIN_EMAIL,
-  type UserProfile
-} from './lib/firebase';
-import { onAuthStateChanged, type User } from 'firebase/auth';
+import { initSupabase, getSupabase } from './lib/supabase';
 
 const safeGetStorage = (key: string) => {
   try {
@@ -61,16 +38,9 @@ const safeSetStorage = (key: string, value: string) => {
 };
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState('buat'); // buat, riwayat, pengaturan, users
-  const [user, setUser] = useState<User | null>(null);
-  const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [authError, setAuthError] = useState<string | null>(null);
-  const [authLoading, setAuthLoading] = useState(true);
-  const [isLoggingIn, setIsLoggingIn] = useState(false);
-  const [userProfiles, setUserProfiles] = useState<UserProfile[]>([]);
-  const [pendingCount, setPendingCount] = useState(0);
+  const [activeTab, setActiveTab] = useState('buat'); // buat, riwayat, pengaturan
   const [isGenerating, setIsGenerating] = useState(false);
-  const [dbStatus, setDbStatus] = useState<'local' | 'firebase' | 'syncing' | 'error'>('local');
+  const [dbStatus, setDbStatus] = useState<'local' | 'supabase' | 'syncing' | 'error'>('local');
   const [dbError, setDbError] = useState<string | null>(null);
   
   // State untuk Pengaturan KOP Sekolah
@@ -113,210 +83,90 @@ export default function App() {
     return saved ? JSON.parse(saved) : [];
   });
 
-  // Auth & Profile Logic
+  // Load from Supabase on mount if configured
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (u) => {
-      setUser(u);
-      if (u) {
-        setAuthLoading(true);
-        let p = await getUserProfile(u.uid);
-        if (!p) {
-          p = await requestAccess(u) as UserProfile;
-        }
-        setProfile(p);
-      } else {
-        setProfile(null);
-      }
-      setAuthLoading(false);
-    });
-    return () => unsubscribe();
-  }, []);
-
-  // Sync profiles if admin
-  useEffect(() => {
-    if (profile?.role === 'admin') {
-      const loadProfiles = async () => {
-        const list = await getAllUserProfiles();
-        setUserProfiles(list);
-        setPendingCount(list.filter(p => p.status === 'pending').length);
-      };
-      loadProfiles();
-    }
-  }, [profile, activeTab]);
-
-  // Load from Firebase on mount if configured and approved
-  useEffect(() => {
-    if (profile?.status !== 'approved') return;
-
     const initializeApp = async () => {
-      const result = await initFirebase();
+      const result = await initSupabase();
+      if (!result.ok) {
+        if (result.error === 'CONFIG_PLACEHOLDER' || result.error === 'MISSING_CONFIG') {
+          setDbError('Konfigurasi Supabase belum diset di Settings.');
+        } else {
+          setDbError('Gagal memuat konfigurasi ENV.');
+        }
+        return;
+      }
+
+      const supabase = getSupabase();
+      if (!supabase) return;
       
       try {
         setDbStatus('syncing');
-        
-        const [fSchoolData, fHistory] = await Promise.all([
-          getSchoolData(),
-          getSuratHistoryList()
+        const [schoolRes, historyRes] = await Promise.all([
+          supabase.from('school_data').select('*').eq('id', 1).single(),
+          supabase.from('surat_history').select('*').order('tanggal_buat', { ascending: false })
         ]);
+
+        if (schoolRes.error && schoolRes.error.code !== 'PGRST116') { // PGRST116 is no rows found
+           throw new Error(schoolRes.error.message);
+        }
         
-        if (fSchoolData) {
+        if (schoolRes.data) {
           setSchoolData({
-            namaInstansi: fSchoolData.namaInstansi || '',
-            alamat: fSchoolData.alamat || '',
-            kontak: fSchoolData.kontak || '',
-            logo: fSchoolData.logo || '',
-            logoKanan: fSchoolData.logoKanan || '',
+            namaInstansi: schoolRes.data.nama_instansi || '',
+            alamat: schoolRes.data.alamat || '',
+            kontak: schoolRes.data.kontak || '',
+            logo: schoolRes.data.logo || '',
+            logoKanan: schoolRes.data.logo_kanan || '',
           });
         }
         
-        if (fHistory) {
-          setHistory(fHistory.map((h: any) => ({
+        if (historyRes.error) throw historyRes.error;
+
+        if (historyRes.data) {
+          setHistory(historyRes.data.map(h => ({
             id: h.id,
-            tanggalBuat: h.tanggalBuat,
-            jenisSurat: h.jenisSurat,
-            nomorSurat: h.nomorSurat,
+            tanggalBuat: h.tanggal_buat,
+            jenisSurat: h.jenis_surat,
+            nomorSurat: h.nomor_surat,
             perihal: h.perihal,
-            namaTujuan: h.namaTujuan,
-            ...h.formData
+            namaTujuan: h.nama_tujuan,
+            ...h.form_data
           })));
         }
         
-        setDbStatus('firebase');
+        setDbStatus('supabase');
         setDbError(null);
       } catch (err: any) {
-        console.error("Firebase initial sync failed", err);
-        let parsedError = err.message;
-        try {
-          const json = JSON.parse(err.message);
-          parsedError = json.error;
-        } catch { /* ignore */ }
-
-        if (parsedError?.includes('luring') || parsedError?.includes('offline') || parsedError?.includes('unavailable')) {
-          setDbStatus('local');
-          console.warn("Firebase offline, falling back to local storage");
-        } else {
-          setDbStatus('error');
-          setDbError(parsedError || 'Gagal terhubung ke database. Tekan icon database untuk mencoba lagi.');
-        }
+        console.error("Supabase load error", err);
+        setDbStatus('error');
+        setDbError(err.message || 'Gagal terhubung ke database Supabase.');
       }
     };
     
     initializeApp();
   }, []);
-
-  const handleRetryDatabase = () => {
-    setActiveTab('buat'); // Ensure we are on a visible tab
-    setDbStatus('syncing');
-    setDbError(null);
-    // Trigger the same initialization logic
-    const initializeApp = async () => {
-      const result = await initFirebase();
-      try {
-        const [fSchoolData, fHistory] = await Promise.all([
-          getSchoolData(),
-          getSuratHistoryList()
-        ]);
-        
-        if (fSchoolData) {
-          setSchoolData({
-            namaInstansi: fSchoolData.namaInstansi || '',
-            alamat: fSchoolData.alamat || '',
-            kontak: fSchoolData.kontak || '',
-            logo: fSchoolData.logo || '',
-            logoKanan: fSchoolData.logoKanan || '',
-          });
-        }
-        
-        if (fHistory && fHistory.length > 0) {
-          setHistory(fHistory.map((h: any) => ({
-            id: h.id,
-            tanggalBuat: h.tanggalBuat,
-            jenisSurat: h.jenisSurat,
-            nomorSurat: h.nomorSurat,
-            perihal: h.perihal,
-            namaTujuan: h.namaTujuan,
-            ...h.formData
-          })));
-        }
-        setDbStatus('firebase');
-      } catch (err: any) {
-        let parsedError = err.message;
-        try { const json = JSON.parse(err.message); parsedError = json.error; } catch { }
-        setDbStatus('error');
-        setDbError(parsedError || 'Koneksi gagal.');
-      }
-    };
-    initializeApp();
-  };
 
   // Efek untuk menyimpan pengaturan
   useEffect(() => {
     safeSetStorage('tu_school_data', JSON.stringify(schoolData));
     
-    if (dbStatus === 'firebase') {
+    if (dbStatus === 'supabase') {
       const timeoutId = setTimeout(async () => {
         try {
-          // Safeguard: Check approximate size before sending
-          const payload = {
-            namaInstansi: schoolData.namaInstansi,
-            alamat: schoolData.alamat,
-            kontak: schoolData.kontak,
-            logo: schoolData.logo,
-            logoKanan: schoolData.logoKanan
-          };
-          
-          const sizeEstimate = JSON.stringify(payload).length;
-          
-          // If size is borderline, try to auto-compress the biggest logo
-          if (sizeEstimate > 850000) {
-            console.warn("Payload size close to limit, attempting auto-compression");
-            const compressLogo = async (b64: string): Promise<string> => {
-              if (!b64 || b64.length < 100000) return b64;
-              return new Promise((resolve) => {
-                const img = new Image();
-                img.onload = () => {
-                  const canvas = document.createElement('canvas');
-                  const dim = 180; // Aggressive target
-                  let { width, height } = img;
-                  if (width > dim || height > dim) {
-                    if (width > height) { height = Math.round((height * dim) / width); width = dim; }
-                    else { width = Math.round((width * dim) / height); height = dim; }
-                  }
-                  canvas.width = width; canvas.height = height;
-                  canvas.getContext('2d')?.drawImage(img, 0, 0, width, height);
-                  resolve(canvas.toDataURL('image/jpeg', 0.3));
-                };
-                img.onerror = () => resolve(b64);
-                img.src = b64;
-              });
-            };
-
-            const newLogo = await compressLogo(schoolData.logo);
-            const newLogoKanan = await compressLogo(schoolData.logoKanan);
-            
-            if (newLogo !== schoolData.logo || newLogoKanan !== schoolData.logoKanan) {
-              setSchoolData(prev => ({ ...prev, logo: newLogo, logoKanan: newLogoKanan }));
-              return; // Next effect run will handle the smaller payload
-            }
+          const supabase = getSupabase();
+          if (supabase) {
+            await supabase.from('school_data').upsert({
+              id: 1,
+              nama_instansi: schoolData.namaInstansi,
+              alamat: schoolData.alamat,
+              kontak: schoolData.kontak,
+              logo: schoolData.logo,
+              logo_kanan: schoolData.logoKanan,
+              updated_at: new Date().toISOString()
+            });
           }
-
-          if (sizeEstimate > 980000) {
-            setDbStatus('error');
-            setDbError('Ukuran Data Pengaturan (Logo) terlalu besar (Maks 1MB). Silakan gunakan logo dengan resolusi lebih rendah.');
-            return;
-          }
-
-          await upsertSchoolData(payload);
-          if (dbStatus === 'error' && dbError?.includes('size')) {
-            setDbError(null);
-            setDbStatus('firebase');
-          }
-        } catch (e: any) {
-          console.error("Failed saving school data to firebase", e);
-          if (e.message?.includes('exceeds the maximum allowed size')) {
-             setDbStatus('error');
-             setDbError('Ukuran Logo terlalu besar untuk disimpan di Cloud. Silakan ganti dengan logo yang lebih kecil.');
-          }
+        } catch (e) {
+          console.error("Failed saving school data to supabase", e);
         }
       }, 1000);
       return () => clearTimeout(timeoutId);
@@ -550,14 +400,10 @@ export default function App() {
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, field: string, isSchoolData = false) => {
     const file = e.target.files?.[0];
     if (file) {
-      if (file.size > 2 * 1024 * 1024) {
-        alert("File asal terlalu besar. Harap gunakan gambar di bawah 2MB sebelum dikompresi otomatis.");
-        return;
-      }
       const img = new Image();
       img.onload = () => {
         const canvas = document.createElement('canvas');
-        const MAX_DIM = isSchoolData ? 200 : 350; // Smaller for logos
+        const MAX_DIM = 400;
         let { width, height } = img;
 
         if (width > MAX_DIM || height > MAX_DIM) {
@@ -574,18 +420,7 @@ export default function App() {
         const ctx = canvas.getContext('2d');
         ctx?.drawImage(img, 0, 0, width, height);
 
-        // Try JPEG first for better compression if it's potentially large
-        let dataUrl = canvas.toDataURL('image/jpeg', 0.5);
-        
-        if (dataUrl.length > 250000) { 
-          // Even smaller and more compressed if still large
-          dataUrl = canvas.toDataURL('image/jpeg', 0.3);
-          if (dataUrl.length > 400000) {
-            alert("Gambar logo masih terlalu besar setelah dikompresi. Silakan gunakan gambar dengan resolusi lebih rendah.");
-            return;
-          }
-        }
-        
+        const dataUrl = canvas.toDataURL('image/png');
         if (isSchoolData) {
           setSchoolData(prev => ({ ...prev, [field]: dataUrl }));
         } else {
@@ -646,32 +481,37 @@ export default function App() {
       return;
     }
     const newRecord = {
-      id: Date.now(), // we'll use numeric id for local fallback, but firebase generates uuid
+      id: Date.now(), // we'll use numeric id for local fallback, but supabase generates uuid
       tanggalBuat: new Date().toISOString(),
       ...formData
     };
 
-    if (dbStatus === 'firebase') {
+    if (dbStatus === 'supabase') {
       try {
         const payloadRecord = { ...newRecord };
         if (payloadRecord.ttdDigital && payloadRecord.ttdDigital.length > 500000) {
            payloadRecord.ttdDigital = ''; // Exclude large signature
         }
 
-        const fbId = await addSuratHistory({
-          jenisSurat: formData.jenisSurat,
-          nomorSurat: formData.nomorSurat,
-          perihal: formData.perihal,
-          namaTujuan: formData.namaTujuan,
-          tanggalBuat: newRecord.tanggalBuat,
-          formData: payloadRecord
-        });
-        
-        if (fbId) {
-            newRecord.id = fbId;
+        const supabase = getSupabase();
+        if (supabase) {
+          const { data, error } = await supabase.from('surat_history').insert({
+            jenis_surat: formData.jenisSurat,
+            nomor_surat: formData.nomorSurat,
+            perihal: formData.perihal,
+            nama_tujuan: formData.namaTujuan,
+            tanggal_buat: newRecord.tanggalBuat,
+            form_data: payloadRecord
+          }).select().single();
+          
+          if (error) throw error;
+          
+          if (data && data.id) {
+              newRecord.id = data.id; // use real uuid
+          }
         }
       } catch (err) {
-        console.error("Failed to save to firebase", err);
+        console.error("Failed to save to supabase", err);
         // keep going, will save to local
       }
     }
@@ -691,11 +531,14 @@ export default function App() {
 
   const hapusRiwayat = async (id: any) => {
     if(window.confirm("Yakin ingin menghapus surat ini dari riwayat?")) {
-      if (dbStatus === 'firebase') {
+      if (dbStatus === 'supabase') {
         try {
-          await deleteSuratHistory(id);
+          const supabase = getSupabase();
+          if (supabase) {
+            await supabase.from('surat_history').delete().eq('id', id);
+          }
         } catch (err) {
-          console.error("Failed to delete from firebase", err);
+          console.error("Failed to delete from supabase", err);
         }
       }
       setHistory(history.filter(h => h.id !== id));
@@ -998,136 +841,6 @@ export default function App() {
   const isSK = formData.jenisSurat === 'Surat Keputusan';
   const isEdaran = formData.jenisSurat === 'Surat Edaran';
 
-  const handleLogin = async () => {
-    if (isLoggingIn) return;
-    setAuthError(null);
-    setIsLoggingIn(true);
-    try {
-      await loginWithGoogle();
-    } catch (err: any) {
-      if (err.code === 'auth/cancelled-popup-request' || err.code === 'auth/popup-closed-by-user') {
-        // User cancelled, do nothing or show subtle message
-        console.log("Login cancelled by user");
-      } else {
-        setAuthError(err.message || 'Gagal masuk dengan Google.');
-      }
-    } finally {
-      setIsLoggingIn(false);
-    }
-  };
-
-  if (authLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50">
-        <div className="text-center group">
-          <Loader2 className="w-12 h-12 text-blue-600 animate-spin mx-auto mb-4" />
-          <p className="text-slate-500 font-medium animate-pulse">Menghubungkan layanan...</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (!user) {
-    return (
-      <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4">
-        <div className="max-w-md w-full bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
-          <div className="bg-blue-600 p-8 text-center">
-            <div className="bg-white/20 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-white/30">
-              <Building className="w-8 h-8 text-white" />
-            </div>
-            <h1 className="text-2xl font-bold text-white">e-Surat TU</h1>
-            <p className="text-blue-100 text-sm mt-1">Sistem Administrasi Surat Kedinasan</p>
-          </div>
-          <div className="p-8 text-center">
-            <h2 className="text-xl font-bold text-slate-800 mb-2">Login / Pendaftaran</h2>
-            <p className="text-slate-600 text-sm mb-8 leading-relaxed">
-              Gunakan akun Google sekolah Anda untuk masuk. <br/>
-              <span className="text-blue-600 font-semibold italic text-[11px]">Bagi pengguna baru, sistem akan otomatis mendaftarkan akun Anda untuk diverifikasi Admin.</span>
-            </p>
-            
-            {authError && (
-              <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl text-red-600 text-xs font-semibold flex items-center gap-2">
-                <ShieldAlert className="w-4 h-4 shrink-0" />
-                <span>{authError}</span>
-              </div>
-            )}
-
-            <button 
-              onClick={handleLogin}
-              disabled={isLoggingIn}
-              className={`w-full flex items-center justify-center gap-3 bg-white border-2 border-slate-200 py-3.5 rounded-xl font-bold text-slate-700 hover:bg-slate-50 hover:border-slate-300 transition-all active:scale-[0.98] shadow-sm mb-4 ${isLoggingIn ? 'opacity-70 cursor-wait' : ''}`}
-            >
-              {isLoggingIn ? (
-                <Loader2 className="w-5 h-5 text-blue-600 animate-spin" />
-              ) : (
-                <LogIn className="w-5 h-5 text-blue-600" />
-              )}
-              {isLoggingIn ? 'Memproses...' : 'Lanjutkan dengan Google'}
-            </button>
-
-            <div className="mt-8 pt-6 border-t border-slate-100">
-              <div className="flex items-center gap-2 justify-center text-slate-400 text-[10px] uppercase font-bold tracking-widest">
-                <ShieldCheck className="w-3 h-3" /> Verifikasi Otomatis Keamanan
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (profile?.status === 'pending') {
-    return (
-      <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4">
-        <div className="max-w-md w-full bg-white rounded-2xl shadow-xl border border-slate-200 p-10 text-center">
-          <div className="bg-amber-100 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6">
-            <Clock className="w-10 h-10 text-amber-600 animate-pulse" />
-          </div>
-          <h2 className="text-2xl font-bold text-slate-800 mb-2">Menunggu Persetujuan</h2>
-          <p className="text-slate-600 text-sm mb-8">
-            Akun Anda <strong>{user.email}</strong> telah terdaftar. <br/>
-            Silakan hubungi Admin di <strong>{ADMIN_EMAIL}</strong> untuk mengaktifkan akses Anda ke aplikasi ini.
-          </p>
-          <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 text-left mb-8">
-            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter mb-1">Status Anda:</div>
-            <div className="flex items-center gap-2 font-bold text-amber-600">
-              <span className="w-2 h-2 bg-amber-500 rounded-full animate-ping"></span>
-              PENDING APPROVAL
-            </div>
-          </div>
-          <button 
-            onClick={logout}
-            className="text-slate-400 hover:text-slate-600 text-sm font-medium transition-colors"
-          >
-            Keluar akun
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  if (profile?.status === 'rejected') {
-    return (
-      <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4">
-        <div className="max-w-md w-full bg-white rounded-2xl shadow-xl border border-slate-200 p-10 text-center">
-          <div className="bg-red-100 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6">
-            <ShieldAlert className="w-10 h-10 text-red-600" />
-          </div>
-          <h2 className="text-2xl font-bold text-slate-800 mb-2">Akses Ditolak</h2>
-          <p className="text-slate-600 text-sm mb-8">
-            Maaf, akses Anda ke aplikasi ini telah dibatasi atau ditolak oleh administrator.
-          </p>
-          <button 
-            onClick={logout}
-            className="w-full bg-slate-800 text-white py-3 rounded-xl font-bold hover:bg-slate-900 transition-all"
-          >
-            Kembali ke Login
-          </button>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans text-slate-800">
       <style dangerouslySetInnerHTML={{__html: `
@@ -1179,28 +892,12 @@ export default function App() {
           </div>
         </div>
         <div className="flex items-center gap-4 text-sm font-medium">
-          {user && (
-            <div className="flex items-center gap-3 mr-4 border-r border-white/20 pr-4">
-              <img src={user.photoURL || ''} className="w-8 h-8 rounded-full border-2 border-white/20" />
-              <div className="hidden sm:block">
-                <p className="text-xs font-bold leading-none">{user.displayName}</p>
-                <p className="text-[10px] text-blue-200 leading-none mt-1">{user.email}</p>
-              </div>
-              <button onClick={logout} className="p-1.5 hover:bg-white/10 rounded-full text-white/70 hover:text-white transition-colors" title="Keluar">
-                <LogOut className="w-4 h-4" />
-              </button>
-            </div>
-          )}
-          <button 
-            onClick={handleRetryDatabase}
-            className="flex items-center gap-1.5 px-3 py-1 bg-black/20 rounded-full border border-white/10 hover:bg-black/30 transition-colors" 
-            title={dbError || (dbStatus === 'firebase' ? 'Terhubung ke Firebase' : 'Mode Offline')}
-          >
-            <Database className={`w-3.5 h-3.5 ${dbStatus === 'firebase' ? 'text-emerald-400' : dbStatus === 'syncing' ? 'text-amber-400 animate-pulse' : dbStatus === 'error' ? 'text-red-400' : 'text-slate-400'}`} />
+          <div className="flex items-center gap-1.5 px-3 py-1 bg-black/20 rounded-full border border-white/10" title={dbStatus === 'supabase' ? 'Terhubung ke Supabase' : dbError || 'Data disimpan lokal'}>
+            <Database className={`w-3.5 h-3.5 ${dbStatus === 'supabase' ? 'text-emerald-400' : dbStatus === 'syncing' ? 'text-amber-400 animate-pulse' : dbStatus === 'error' ? 'text-red-400' : 'text-slate-400'}`} />
             <span className="text-xs text-white/90 uppercase tracking-wider">
-              {dbStatus === 'firebase' ? 'Firebase' : dbStatus === 'syncing' ? 'Syncing...' : dbStatus === 'error' ? 'Retry' : 'Local'}
+              {dbStatus === 'supabase' ? 'Supabase' : dbStatus === 'syncing' ? 'Syncing...' : dbStatus === 'error' ? 'Db Error' : 'Local'}
             </span>
-          </button>
+          </div>
           <span>Tahun Ajaran {new Date().getFullYear()}</span>
         </div>
       </header>
@@ -1211,46 +908,10 @@ export default function App() {
             <SidebarButton active={activeTab === 'buat'} onClick={() => setActiveTab('buat')} icon={<FileText className="w-5 h-5" />} label="Buat Surat" />
             <SidebarButton active={activeTab === 'riwayat'} onClick={() => setActiveTab('riwayat')} icon={<History className="w-5 h-5" />} label="Riwayat Surat" />
             <SidebarButton active={activeTab === 'pengaturan'} onClick={() => setActiveTab('pengaturan')} icon={<Settings className="w-5 h-5" />} label="Pengaturan KOP" />
-            {profile?.role === 'admin' && (
-              <div className="relative">
-                <SidebarButton 
-                  active={activeTab === 'users'} 
-                  onClick={() => setActiveTab('users')} 
-                  icon={<Users className="w-5 h-5" />} 
-                  label="Manajemen Akses" 
-                />
-                {pendingCount > 0 && (
-                  <span className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center justify-center w-5 h-5 bg-red-500 text-white text-[10px] font-bold rounded-full border-2 border-white animate-bounce">
-                    {pendingCount}
-                  </span>
-                )}
-              </div>
-            )}
           </nav>
-          {profile?.role === 'admin' && (
-            <div className="p-4 bg-blue-50 border-t border-blue-100 italic text-[10px] text-blue-600">
-              <ShieldCheck className="w-3 h-3 inline mr-1" />
-              Mode Admin Aktif
-            </div>
-          )}
         </aside>
 
         <main className="flex-1 overflow-y-auto relative bg-slate-100 no-print">
-          {dbStatus === 'error' && (
-            <div className="bg-red-50 border-b border-red-200 p-3 flex items-center justify-between no-print">
-              <div className="flex items-center gap-2 text-red-700 text-sm">
-                <Database className="w-4 h-4" />
-                <span className="font-medium">Kesalahan Database:</span>
-                <span>{dbError}</span>
-              </div>
-              <button 
-                onClick={handleRetryDatabase}
-                className="text-xs bg-red-600 text-white px-3 py-1 rounded hover:bg-red-700 font-semibold"
-              >
-                Coba Lagi
-              </button>
-            </div>
-          )}
           {activeTab === 'buat' && (
             <div className="p-6 flex flex-col lg:flex-row gap-6 h-full items-start">
               {/* Form Panel */}
@@ -1636,88 +1297,6 @@ export default function App() {
             </div>
           )}
 
-          {activeTab === 'users' && profile?.role === 'admin' && (
-            <div className="p-6">
-              <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-                <div className="p-6 border-b border-slate-100 flex justify-between items-center">
-                  <div>
-                    <h2 className="text-xl font-bold text-slate-800">Manajemen Akses Pengguna</h2>
-                    <p className="text-sm text-slate-500">Kelola siapa yang dapat mengakses aplikasi ini.</p>
-                  </div>
-                  <div className="bg-blue-50 text-blue-700 px-3 py-1 rounded-full text-xs font-semibold flex items-center gap-1">
-                    <ShieldCheck className="w-3 h-3" /> Admin: {ADMIN_EMAIL}
-                  </div>
-                </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left">
-                    <thead className="bg-slate-50 text-slate-600 text-xs uppercase tracking-wider">
-                      <tr>
-                        <th className="px-6 py-4 font-bold">Pengguna</th>
-                        <th className="px-6 py-4 font-bold">Status</th>
-                        <th className="px-6 py-4 font-bold">Waktu Request</th>
-                        <th className="px-6 py-4 font-bold">Aksi</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {userProfiles.map((p) => (
-                        <tr key={p.uid} className="hover:bg-slate-50/50 transition-colors">
-                          <td className="px-6 py-4">
-                            <div className="flex items-center gap-3">
-                              <img src={p.photoURL} className="w-8 h-8 rounded-full" />
-                              <div>
-                                <div className="text-sm font-semibold text-slate-800">{p.displayName}</div>
-                                <div className="text-xs text-slate-500">{p.email}</div>
-                              </div>
-                            </div>
-                          </td>
-                          <td className="px-6 py-4">
-                            <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide ${
-                              p.status === 'approved' ? 'bg-emerald-100 text-emerald-700' :
-                              p.status === 'rejected' ? 'bg-red-100 text-red-700' :
-                              'bg-amber-100 text-amber-700'
-                            }`}>
-                              {p.status}
-                            </span>
-                          </td>
-                          <td className="px-6 py-4 text-xs text-slate-500">
-                            {p.requestedAt?.toDate ? p.requestedAt.toDate().toLocaleString('id-ID') : 'Baru saja'}
-                          </td>
-                          <td className="px-6 py-4">
-                            {p.uid !== user?.uid && (
-                              <div className="flex gap-2">
-                                {p.status !== 'approved' && (
-                                  <button 
-                                    onClick={() => {
-                                      updateUserStatus(p.uid, 'approved');
-                                      setUserProfiles(prev => prev.map(up => up.uid === p.uid ? { ...up, status: 'approved' } : up));
-                                    }}
-                                    className="px-3 py-1 bg-emerald-600 text-white rounded text-xs font-bold hover:bg-emerald-700 transition-colors"
-                                  >
-                                    Setujui
-                                  </button>
-                                )}
-                                {p.status !== 'rejected' && (
-                                  <button 
-                                    onClick={() => {
-                                      updateUserStatus(p.uid, 'rejected');
-                                      setUserProfiles(prev => prev.map(up => up.uid === p.uid ? { ...up, status: 'rejected' } : up));
-                                    }}
-                                    className="px-3 py-1 bg-slate-200 text-slate-700 rounded text-xs font-bold hover:bg-slate-300 transition-colors"
-                                  >
-                                    Blokir
-                                  </button>
-                                )}
-                              </div>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-          )}
           {activeTab === 'pengaturan' && (
             <div className="p-8 max-w-2xl mx-auto">
               <div className="bg-white rounded-xl shadow p-6 space-y-6">
@@ -1732,36 +1311,14 @@ export default function App() {
                   <input name="kontak" value={schoolData.kontak} onChange={handleSchoolDataChange} className="form-input" />
                 </InputWrapper>
                 <div className="grid grid-cols-2 gap-4">
-                  <div className="p-4 bg-slate-50 rounded-lg text-center relative group">
+                  <div className="p-4 bg-slate-50 rounded-lg text-center">
                     <label className="text-xs font-bold block mb-2">Logo Kiri</label>
-                    {schoolData.logo && (
-                      <div className="relative inline-block mb-2 group">
-                        <img src={schoolData.logo} className="h-16 mx-auto object-contain" />
-                        <button 
-                          onClick={() => setSchoolData(prev => ({ ...prev, logo: '' }))}
-                          className="absolute -top-2 -right-2 p-1 bg-red-100 text-red-600 rounded-full opacity-0 group-hover:opacity-100 transition-opacity shadow-sm hover:bg-red-200"
-                          title="Hapus Logo"
-                        >
-                          <Trash2 className="w-3 h-3" />
-                        </button>
-                      </div>
-                    )}
+                    {schoolData.logo && <img src={schoolData.logo} className="h-16 mx-auto mb-2 object-contain" />}
                     <input type="file" onChange={e => handleImageUpload(e, 'logo', true)} className="text-xs w-full" />
                   </div>
-                  <div className="p-4 bg-slate-50 rounded-lg text-center relative group">
+                  <div className="p-4 bg-slate-50 rounded-lg text-center">
                     <label className="text-xs font-bold block mb-2">Logo Kanan</label>
-                    {schoolData.logoKanan && (
-                      <div className="relative inline-block mb-2 group">
-                        <img src={schoolData.logoKanan} className="h-16 mx-auto object-contain" />
-                        <button 
-                          onClick={() => setSchoolData(prev => ({ ...prev, logoKanan: '' }))}
-                          className="absolute -top-2 -right-2 p-1 bg-red-100 text-red-600 rounded-full opacity-0 group-hover:opacity-100 transition-opacity shadow-sm hover:bg-red-200"
-                          title="Hapus Logo"
-                        >
-                          <Trash2 className="w-3 h-3" />
-                        </button>
-                      </div>
-                    )}
+                    {schoolData.logoKanan && <img src={schoolData.logoKanan} className="h-16 mx-auto mb-2 object-contain" />}
                     <input type="file" onChange={e => handleImageUpload(e, 'logoKanan', true)} className="text-xs w-full" />
                   </div>
                 </div>
