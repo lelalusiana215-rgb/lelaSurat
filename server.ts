@@ -34,7 +34,14 @@ async function startServer() {
         return res.status(500).json({ error: "GEMINI_API_KEY is not configured" });
       }
 
-      const genAI = new GoogleGenAI(process.env.GEMINI_API_KEY!);
+      const ai = new GoogleGenAI({
+        apiKey: process.env.GEMINI_API_KEY,
+        httpOptions: {
+          headers: {
+            'User-Agent': 'aistudio-build',
+          }
+        }
+      });
       
       const systemPrompt = `Anda adalah asisten Tata Usaha sekolah yang profesional. Tugas Anda adalah membantu menyusun ISI POKOK surat kedinasan.
 
@@ -50,13 +57,13 @@ Instruksi sangat penting berdasarkan Jenis Surat:
    Hari, Tanggal : ...
    Waktu : ...
    Tempat : ...
-5. Gunakan bahasa Indonesia baku dan tata bahasa resmi administrasi pemerintahan/sekolah yang elegan dan profesional.
+5. Gunakan bahasa Indonesia baku dan tata bahasa resmi administrasi pemerintahan/sekolah yang elegan and profesional.
 6. Jangan gunakan format markdown (seperti \`\`\`).`;
 
       const userQuery = `Jenis Surat: ${jenisSurat}\nPerihal / Tentang: ${perihal}\nTujuan Surat: ${namaTujuan || 'Pihak Terkait'}`;
 
-      // Retry mechanism for 503 and 429 errors with model fallbacks
-      const modelsToTry = ["gemini-1.5-flash", "gemini-1.5-pro"];
+      // Retry mechanism for 503 and 429 errors
+      const modelsToTry = ["gemini-3.5-flash", "gemini-3.1-pro-preview"];
       let responseText = "";
       let lastError;
 
@@ -64,15 +71,17 @@ Instruksi sangat penting berdasarkan Jenis Surat:
         let retries = 2;
         while (retries > 0) {
           try {
-            const model = genAI.getGenerativeModel({ 
+            const response = await ai.models.generateContent({ 
               model: modelName,
-              systemInstruction: systemPrompt
+              contents: userQuery,
+              config: {
+                systemInstruction: systemPrompt
+              }
             });
             
-            const result = await model.generateContent(userQuery);
-            const response = await result.response;
-            responseText = response.text();
-            break; // Success!
+            responseText = response.text || "";
+            if (responseText) break; 
+            throw new Error("Empty response from AI");
           } catch (err: any) {
             lastError = err;
             const isRetryable = err.message?.includes('503') || err.status === 503;
@@ -81,14 +90,11 @@ Instruksi sangat penting berdasarkan Jenis Surat:
             if (isRetryable || isQuotaExceeded) {
               retries--;
               if (retries > 0) {
-                // Wait briefly before retry
                 await new Promise(res => setTimeout(res, 2000));
                 continue;
               }
-            } else {
-              throw err; // Non-retryable error
             }
-            break; // Move to next model
+            break; 
           }
         }
         if (responseText) break;

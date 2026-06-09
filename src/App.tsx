@@ -433,8 +433,18 @@ export default function App() {
         } else {
           setFormData(prev => ({ ...prev, [field]: dataUrl }));
         }
+        // Clear input value so same file can be re-uploaded if deleted
+        e.target.value = '';
       };
       img.src = URL.createObjectURL(file);
+    }
+  };
+
+  const handleRemoveImage = (field: string, isSchoolData = false) => {
+    if (isSchoolData) {
+      setSchoolData(prev => ({ ...prev, [field]: '' }));
+    } else {
+      setFormData(prev => ({ ...prev, [field]: '' }));
     }
   };
 
@@ -1091,9 +1101,21 @@ export default function App() {
                         <input type="text" name="nipKepsek" value={formData.nipKepsek} onChange={handleInputChange} className="form-input"/>
                       </InputWrapper>
                     </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-500 mb-1">Tanda Tangan (Opsional)</label>
-                      <input type="file" accept="image/*" onChange={(e) => handleImageUpload(e, 'ttdDigital')} className="file-input"/>
+                    <div className="flex items-center gap-3">
+                      <label className="cursor-pointer flex items-center gap-2 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-md text-xs font-bold hover:bg-blue-100 transition-colors border border-blue-200">
+                        <Upload className="w-3.5 h-3.5" />
+                        Pilih Tanda Tangan
+                        <input type="file" accept="image/*" onChange={(e) => handleImageUpload(e, 'ttdDigital')} className="hidden"/>
+                      </label>
+                      {formData.ttdDigital && (
+                        <button 
+                          onClick={() => handleRemoveImage('ttdDigital')}
+                          className="flex items-center gap-1.5 px-3 py-1.5 bg-red-50 text-red-600 rounded-md text-xs font-bold hover:bg-red-100 transition-colors border border-red-200"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          Hapus
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -1318,15 +1340,62 @@ export default function App() {
                   <input name="kontak" value={schoolData.kontak} onChange={handleSchoolDataChange} className="form-input" />
                 </InputWrapper>
                 <div className="grid grid-cols-2 gap-4">
-                  <div className="p-4 bg-slate-50 rounded-lg text-center">
-                    <label className="text-xs font-bold block mb-2">Logo Kiri</label>
-                    {schoolData.logo && <img src={schoolData.logo} className="h-16 mx-auto mb-2 object-contain" />}
-                    <input type="file" onChange={e => handleImageUpload(e, 'logo', true)} className="text-xs w-full" />
+                  <div className="p-4 bg-slate-50 rounded-lg text-center flex flex-col items-center justify-between min-h-[160px]">
+                    <div>
+                      <label className="text-xs font-bold block mb-2 uppercase text-slate-500">Logo Kiri</label>
+                      <div className="h-20 w-20 mx-auto mb-3 bg-white border border-dashed border-slate-300 rounded-lg flex items-center justify-center overflow-hidden">
+                        {schoolData.logo ? (
+                          <img src={schoolData.logo} className="max-h-full max-w-full object-contain p-1" />
+                        ) : (
+                          <Building className="w-8 h-8 text-slate-200" />
+                        )}
+                      </div>
+                    </div>
+                    <div className="space-y-2 w-full">
+                      <label className="w-full cursor-pointer flex items-center justify-center gap-2 px-3 py-2 bg-blue-600 text-white rounded-md text-xs font-bold hover:bg-blue-700 transition-colors">
+                        <Upload className="w-3.5 h-3.5" />
+                        {schoolData.logo ? 'Ganti Logo' : 'Pilih Logo'}
+                        <input type="file" accept="image/*" onChange={e => handleImageUpload(e, 'logo', true)} className="hidden" />
+                      </label>
+                      {schoolData.logo && (
+                        <button 
+                          onClick={() => handleRemoveImage('logo', true)}
+                          className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-white text-red-600 border border-red-200 rounded-md text-xs font-bold hover:bg-red-50 transition-colors"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          Hapus Logo
+                        </button>
+                      )}
+                    </div>
                   </div>
-                  <div className="p-4 bg-slate-50 rounded-lg text-center">
-                    <label className="text-xs font-bold block mb-2">Logo Kanan</label>
-                    {schoolData.logoKanan && <img src={schoolData.logoKanan} className="h-16 mx-auto mb-2 object-contain" />}
-                    <input type="file" onChange={e => handleImageUpload(e, 'logoKanan', true)} className="text-xs w-full" />
+                  
+                  <div className="p-4 bg-slate-50 rounded-lg text-center flex flex-col items-center justify-between min-h-[160px]">
+                    <div>
+                      <label className="text-xs font-bold block mb-2 uppercase text-slate-500">Logo Kanan</label>
+                      <div className="h-20 w-20 mx-auto mb-3 bg-white border border-dashed border-slate-300 rounded-lg flex items-center justify-center overflow-hidden">
+                        {schoolData.logoKanan ? (
+                          <img src={schoolData.logoKanan} className="max-h-full max-w-full object-contain p-1" />
+                        ) : (
+                          <Building className="w-8 h-8 text-slate-200" />
+                        )}
+                      </div>
+                    </div>
+                    <div className="space-y-2 w-full">
+                      <label className="w-full cursor-pointer flex items-center justify-center gap-2 px-3 py-2 bg-blue-600 text-white rounded-md text-xs font-bold hover:bg-blue-700 transition-colors">
+                        <Upload className="w-3.5 h-3.5" />
+                        {schoolData.logoKanan ? 'Ganti Logo' : 'Pilih Logo'}
+                        <input type="file" accept="image/*" onChange={e => handleImageUpload(e, 'logoKanan', true)} className="hidden" />
+                      </label>
+                      {schoolData.logoKanan && (
+                        <button 
+                          onClick={() => handleRemoveImage('logoKanan', true)}
+                          className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-white text-red-600 border border-red-200 rounded-md text-xs font-bold hover:bg-red-50 transition-colors"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          Hapus Logo
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
                 <button onClick={() => { alert('Tersimpan!'); setActiveTab('buat'); }} className="w-full py-3 bg-blue-600 text-white rounded-lg font-bold shadow-lg hover:bg-blue-700 transition-colors">Simpan Perubahan</button>

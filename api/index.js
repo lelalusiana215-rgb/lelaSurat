@@ -15,7 +15,14 @@ const app = express();
     });
   });
 
-const ai = new GoogleGenAI(process.env.GEMINI_API_KEY!);
+const ai = new GoogleGenAI({
+  apiKey: process.env.GEMINI_API_KEY,
+  httpOptions: {
+    headers: {
+      'User-Agent': 'aistudio-build',
+    }
+  }
+});
 
 app.post('/api/generate-letter', async (req, res) => {
   try {
@@ -39,12 +46,12 @@ Instruksi sangat penting berdasarkan Jenis Surat:
    Hari, Tanggal : ...
    Waktu : ...
    Tempat : ...
-5. Gunakan bahasa Indonesia baku dan tata bahasa resmi administrasi pemerintahan/sekolah yang elegan dan profesional.
+5. Gunakan bahasa Indonesia baku dan tata bahasa resmi administrasi pemerintahan/sekolah yang elegan and profesional.
 6. Jangan gunakan format markdown (seperti \`\`\`).`;
 
     const userQuery = `Jenis Surat: ${jenisSurat}\nPerihal / Tentang: ${perihal}\nTujuan Surat: ${namaTujuan || 'Pihak Terkait'}`;
 
-    const modelsToTry = ["gemini-1.5-flash", "gemini-1.5-pro"];
+    const modelsToTry = ["gemini-3.5-flash", "gemini-3.1-pro-preview"];
     let responseText = "";
     let lastError;
 
@@ -52,15 +59,17 @@ Instruksi sangat penting berdasarkan Jenis Surat:
       let retries = 2;
       while (retries > 0) {
         try {
-          const model = ai.getGenerativeModel({ 
+          const response = await ai.models.generateContent({ 
             model: modelName,
-            systemInstruction: systemPrompt
+            contents: userQuery,
+            config: {
+              systemInstruction: systemPrompt
+            }
           });
           
-          const result = await model.generateContent(userQuery);
-          const response = await result.response;
-          responseText = response.text();
-          break;
+          responseText = response.text || "";
+          if (responseText) break;
+          throw new Error("Empty response from AI");
         } catch (err) {
           lastError = err;
           const isRetryable = err.message?.includes('503') || err.status === 503;
@@ -72,8 +81,6 @@ Instruksi sangat penting berdasarkan Jenis Surat:
               await new Promise(resolve => setTimeout(resolve, 2000));
               continue;
             }
-          } else {
-            throw err;
           }
           break;
         }
