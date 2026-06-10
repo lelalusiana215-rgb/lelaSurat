@@ -533,21 +533,26 @@ export default function App() {
         })
       });
 
-      const data = await response.json();
+      const contentType = response.headers.get("content-type");
+      if (contentType && contentType.includes("application/json")) {
+        const data = await response.json();
 
-      if (!response.ok) {
-        if (response.status === 429) {
-          alert("Gagal: Kuota harian Gemini API telah habis. Silakan coba lagi besok.");
-        } else {
-          throw new Error(data.error || "Gagal menyusun surat otomatis.");
+        if (!response.ok) {
+          if (response.status === 429) {
+            alert("Gagal: Kuota harian Gemini API telah habis atau terlalu banyak permintaan.");
+          } else {
+            alert(data.error || "Gagal menyusun surat otomatis.");
+          }
+          return;
         }
-        return;
-      }
 
-      if (data.text) {
-        setFormData(prev => ({ ...prev, isiSurat: data.text }));
+        if (data.text) {
+          setFormData(prev => ({ ...prev, isiSurat: data.text }));
+        } else {
+          throw new Error("Respons teks dari AI kosong.");
+        }
       } else {
-        throw new Error("Respons teks dari AI kosong.");
+        throw new Error("Server mengirimkan respon tidak valid (HTML). Silakan coba lagi.");
       }
     } catch (error: any) {
       console.error("Gagal menggenerate isi surat:", error);
@@ -707,13 +712,18 @@ export default function App() {
         body: JSON.stringify({ apiKey: customApiKey }),
       });
 
-      const data = await response.json();
-      if (response.ok && data.success) {
-        setApiCheckStatus('success');
-        setApiCheckMessage(data.message || 'Koneksi API Key berhasil!');
+      const contentType = response.headers.get("content-type");
+      if (contentType && contentType.includes("application/json")) {
+        const data = await response.json();
+        if (response.ok && data.success) {
+          setApiCheckStatus('success');
+          setApiCheckMessage(data.message || 'Koneksi API Key berhasil!');
+        } else {
+          setApiCheckStatus('error');
+          setApiCheckMessage(data.error || 'API Key tidak valid atau terjadi masalah koneksi.');
+        }
       } else {
-        setApiCheckStatus('error');
-        setApiCheckMessage(data.error || 'API Key tidak valid atau terjadi masalah koneksi.');
+        throw new Error("Server mengirimkan respon tidak valid (HTML). Silakan coba beberapa saat lagi.");
       }
     } catch (err: any) {
       setApiCheckStatus('error');

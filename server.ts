@@ -1,7 +1,7 @@
 import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 import dotenv from "dotenv";
 
 dotenv.config();
@@ -35,22 +35,13 @@ async function startServer() {
         return res.status(400).json({ error: "API Key tidak boleh kosong." });
       }
 
-      const ai = new GoogleGenAI({
-        apiKey: effectiveApiKey,
-        httpOptions: {
-          headers: {
-            'User-Agent': 'aistudio-build',
-          }
-        }
-      });
+      const genAI = new GoogleGenerativeAI(effectiveApiKey);
+      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+      const result = await model.generateContent("Balas hanya dengan kata 'OK' untuk tes koneksi.");
+      const response = await result.response;
+      const text = response.text();
 
-      // Try generating a brief, quick test response
-      const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
-        contents: "Balas hanya dengan kata 'OK' untuk tes koneksi.",
-      });
-
-      if (response && response.text) {
+      if (text) {
         return res.json({ success: true, message: "Koneksi berhasil! API Key Anda aktif dan merespons dengan baik." });
       } else {
         return res.status(400).json({ error: "Gagal memverifikasi API Key: Respon kosong dari model." });
@@ -78,14 +69,7 @@ async function startServer() {
         return res.status(500).json({ error: "GEMINI_API_KEY is not configured" });
       }
 
-      const ai = new GoogleGenAI({
-        apiKey: effectiveApiKey,
-        httpOptions: {
-          headers: {
-            'User-Agent': 'aistudio-build',
-          }
-        }
-      });
+      const genAI = new GoogleGenerativeAI(effectiveApiKey);
       
       const systemPrompt = `Anda adalah asisten Tata Usaha sekolah yang profesional. Tugas Anda adalah membantu menyusun ISI POKOK surat kedinasan.
 
@@ -107,7 +91,7 @@ Instruksi sangat penting berdasarkan Jenis Surat:
       const userQuery = `Jenis Surat: ${jenisSurat}\nPerihal / Tentang: ${perihal}\nTujuan Surat: ${namaTujuan || 'Pihak Terkait'}`;
 
       // Retry mechanism for 503 and 429 errors
-      const modelsToTry = ["gemini-3.5-flash", "gemini-3.1-pro-preview"];
+      const modelsToTry = ["gemini-1.5-flash", "gemini-1.5-pro"];
       let responseText = "";
       let lastError;
 
@@ -115,15 +99,15 @@ Instruksi sangat penting berdasarkan Jenis Surat:
         let retries = 2;
         while (retries > 0) {
           try {
-            const response = await ai.models.generateContent({ 
+            const model = genAI.getGenerativeModel({ 
               model: modelName,
-              contents: userQuery,
-              config: {
-                systemInstruction: systemPrompt
-              }
+              systemInstruction: systemPrompt
             });
             
-            responseText = response.text || "";
+            const result = await model.generateContent(userQuery);
+            const response = await result.response;
+            responseText = response.text() || "";
+            
             if (responseText) break; 
             throw new Error("Empty response from AI");
           } catch (err: any) {
