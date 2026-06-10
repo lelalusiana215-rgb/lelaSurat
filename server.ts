@@ -49,18 +49,22 @@ async function startServer() {
       console.log(`Checking API Key validity via @google/genai...`);
       const ai = getGeminiClient(effectiveApiKey);
       
-      // Try preferred stable models from skill
-      const testModelNames = ["gemini-3.5-flash", "gemini-flash-latest"];
+      // Try a wider range of models for maximum compatibility across different account types
+      const testModelNames = ["gemini-1.5-flash", "gemini-flash-latest", "gemini-1.5-pro", "gemini-pro", "gemini-3.5-flash"];
       let lastErr: any;
       let successModel = "";
 
-      // Explicit check for Vertex AI key format
+      // Explicit check for Vertex AI key format or other common mismatches
       if (effectiveApiKey.startsWith("AQ.")) {
         return res.status(400).json({ 
           error: "API Key yang Anda masukkan (diawali 'AQ.') adalah format API Key Vertex AI (Google Cloud Platform). " + 
                  "Aplikasi ini memerlukan API Key dari Google AI Studio. " + 
                  "Silakan buat API Key baru di: https://aistudio.google.com/app/apikey"
         });
+      }
+
+      if (!effectiveApiKey.startsWith("AIza")) {
+        console.warn("API Key does not start with AIza - this might be an invalid format for AI Studio.");
       }
 
       for (const modelName of testModelNames) {
@@ -146,8 +150,8 @@ Instruksi sangat penting berdasarkan Jenis Surat:
 
       const userQuery = `Jenis Surat: ${jenisSurat}\nPerihal / Tentang: ${perihal}\nTujuan Surat: ${namaTujuan || 'Pihak Terkait'}`;
 
-      // Preferred stable models from skill
-      const modelsToTry = ["gemini-3.5-flash", "gemini-flash-latest", "gemini-3.1-pro-preview"];
+      // Use a broad list of models for compatibility
+      const modelsToTry = ["gemini-1.5-flash", "gemini-flash-latest", "gemini-1.5-pro", "gemini-pro", "gemini-3.5-flash", "gemini-3.1-pro-preview"];
       let responseText = "";
       let lastError;
 
