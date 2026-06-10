@@ -1,10 +1,22 @@
 import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
 
 dotenv.config();
+
+// Unified Gemini Client Initialization
+const getGeminiClient = (apiKey: string) => {
+  return new GoogleGenAI({
+    apiKey,
+    httpOptions: {
+      headers: {
+        'User-Agent': 'aistudio-build',
+      }
+    }
+  });
+};
 
 async function startServer() {
   const app = express();
@@ -14,7 +26,6 @@ async function startServer() {
 
   // Dynamic ENV variables for client-side
   app.get("/api/env", (req, res) => {
-    console.log("Health check: /api/env called");
     res.json({
       supabaseUrl: process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || "",
       supabaseAnonKey: process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || ""
@@ -29,32 +40,77 @@ async function startServer() {
   app.post("/api/check-api-key", async (req, res) => {
     try {
       const { apiKey } = req.body;
-      const effectiveApiKey = apiKey || process.env.GEMINI_API_KEY;
+      const effectiveApiKey = (apiKey ? String(apiKey).trim() : "") || process.env.GEMINI_API_KEY;
 
       if (!effectiveApiKey) {
         return res.status(400).json({ error: "API Key tidak boleh kosong." });
       }
 
-      const genAI = new GoogleGenerativeAI(effectiveApiKey);
-      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-      const result = await model.generateContent("Balas hanya dengan kata 'OK' untuk tes koneksi.");
-      const response = await result.response;
-      const text = response.text();
+      console.log(`Checking API Key validity via @google/genai...`);
+      const ai = getGeminiClient(effectiveApiKey);
+      
+      // Try preferred stable models from skill
+      const testModelNames = ["gemini-3.5-flash", "gemini-flash-latest"];
+      let lastErr: any;
+      let successModel = "";
 
-      if (text) {
-        return res.json({ success: true, message: "Koneksi berhasil! API Key Anda aktif dan merespons dengan baik." });
-      } else {
-        return res.status(400).json({ error: "Gagal memverifikasi API Key: Respon kosong dari model." });
+      // Explicit check for Vertex AI key format
+      if (effectiveApiKey.startsWith("AQ.")) {
+        return res.status(400).json({ 
+          error: "API Key yang Anda masukkan (diawali 'AQ.') adalah format API Key Vertex AI (Google Cloud Platform). " + 
+                 "Aplikasi ini memerlukan API Key dari Google AI Studio. " + 
+                 "Silakan buat API Key baru di: https://aistudio.google.com/app/apikey"
+        });
       }
+
+      for (const modelName of testModelNames) {
+        try {
+          console.log(`Pengecekan API Key menggunakan model: ${modelName}`);
+          const response = await ai.models.generateContent({
+            model: modelName,
+            contents: "OK",
+            config: { maxOutputTokens: 5 }
+          });
+          
+          if (response.text) {
+            successModel = modelName;
+            break;
+          }
+        } catch (err: any) {
+          lastErr = err;
+          console.warn(`Pengecekan model ${modelName} gagal: ${err.message}`);
+          
+          // If the error is 401 (Unauthorized) or 400 (Invalid Key), no need to try other models
+          if (err.status === 400 || err.status === 401 || err.message?.includes("API_KEY_INVALID")) {
+            break;
+          }
+        }
+      }
+
+      if (successModel) {
+        return res.json({ 
+          success: true, 
+          message: `Koneksi berhasil! API Key Anda aktif (diverifikasi via ${successModel}).` 
+        });
+      }
+
+      throw lastErr || new Error("Gagal memverifikasi API Key.");
     } catch (error: any) {
-      console.error("Check API Key connection failed:", error);
-      let errMsg = error.message || "Gagal menghubungi Gemini API.";
-      if (error.status === 400 || error.message?.includes("API_KEY_INVALID") || error.message?.includes("invalid") || error.message?.includes("Invalid API key")) {
-        errMsg = "API Key tidak valid atau salah. Harap periksa kembali.";
-      } else if (error.status === 429 || error.message?.includes("Quota exceeded") || error.message?.includes("429")) {
-        errMsg = "Kuota untuk API Key Anda sudah melampaui batas (Rate Limit / Quota Exceeded).";
+      console.error("Check API Key connection failed DETAIL:", error);
+      
+      let errMsg = "Gagal menghubungi Gemini API.";
+      
+      if (error.status === 404 || error.message?.includes("404") || error.message?.includes("not found")) {
+        errMsg = "Model tidak ditemukan (404). Ini biasanya terjadi jika API Key salah atau jika Anda menggunakan API Key Vertex AI (Google Cloud) alih-alih Google AI Studio key. Pastikan Anda menyalin API Key dari aistudio.google.com.";
+      } else if (error.status === 400 || error.message?.includes("API_KEY_INVALID") || error.message?.includes("invalid")) {
+        errMsg = "API Key tidak valid. Harap periksa apakah Key sudah benar (tanpa spasi/tanda kutip).";
+      } else if (error.status === 429 || error.message?.includes("429")) {
+        errMsg = "Kuota API Key Anda habis atau limit per menit tercapai.";
+      } else if (error.message) {
+        errMsg = `Error: ${error.message}`;
       }
-      res.status(400).json({ error: errMsg });
+      
+      return res.status(400).json({ error: errMsg });
     }
   });
 
@@ -63,18 +119,18 @@ async function startServer() {
     try {
       const { jenisSurat, perihal, namaTujuan, apiKey: clientApiKey } = req.body;
       
-      const effectiveApiKey = clientApiKey || process.env.GEMINI_API_KEY;
+      const effectiveApiKey = (clientApiKey ? String(clientApiKey).trim() : "") || process.env.GEMINI_API_KEY;
 
       if (!effectiveApiKey) {
-        return res.status(500).json({ error: "GEMINI_API_KEY is not configured" });
+        return res.status(400).json({ error: "GEMINI_API_KEY is not configured" });
       }
 
-      const genAI = new GoogleGenerativeAI(effectiveApiKey);
+      const ai = getGeminiClient(effectiveApiKey);
       
       const systemPrompt = `Anda adalah asisten Tata Usaha sekolah yang profesional. Tugas Anda adalah membantu menyusun ISI POKOK surat kedinasan.
 
 Instruksi sangat penting berdasarkan Jenis Surat:
-1. Jika Jenis Surat adalah "Surat Keputusan", Anda WAJIB menyusunnya dengan struktur formal lengkap:
+1. Jika Jenis Surat adalah "Surat Keputusan" atau "SK Pembagian Tugas (SKPBM)", Anda WAJIB menyusunnya dengan struktur formal lengkap:
    - Menimbang : (poin-poin pertimbangan a, b, c...)
    - Mengingat : (landasan hukum 1, 2, 3...)
    - MEMUTUSKAN
@@ -90,8 +146,8 @@ Instruksi sangat penting berdasarkan Jenis Surat:
 
       const userQuery = `Jenis Surat: ${jenisSurat}\nPerihal / Tentang: ${perihal}\nTujuan Surat: ${namaTujuan || 'Pihak Terkait'}`;
 
-      // Retry mechanism for 503 and 429 errors
-      const modelsToTry = ["gemini-1.5-flash", "gemini-1.5-pro"];
+      // Preferred stable models from skill
+      const modelsToTry = ["gemini-3.5-flash", "gemini-flash-latest", "gemini-3.1-pro-preview"];
       let responseText = "";
       let lastError;
 
@@ -99,23 +155,25 @@ Instruksi sangat penting berdasarkan Jenis Surat:
         let retries = 2;
         while (retries > 0) {
           try {
-            const model = genAI.getGenerativeModel({ 
+            console.log(`Attempting generation with ${modelName}...`);
+            const response = await ai.models.generateContent({
               model: modelName,
-              systemInstruction: systemPrompt
+              contents: userQuery,
+              config: {
+                systemInstruction: systemPrompt
+              }
             });
             
-            const result = await model.generateContent(userQuery);
-            const response = await result.response;
-            responseText = response.text() || "";
+            responseText = response.text || "";
             
             if (responseText) break; 
             throw new Error("Empty response from AI");
           } catch (err: any) {
+            console.warn(`Error with ${modelName}:`, err.message);
             lastError = err;
-            const isRetryable = err.message?.includes('503') || err.status === 503;
-            const isQuotaExceeded = err.message?.includes('429') || err.status === 429;
+            const isRetryable = err.status === 503 || err.status === 429 || err.message?.includes('503') || err.message?.includes('429');
 
-            if (isRetryable || isQuotaExceeded) {
+            if (isRetryable) {
               retries--;
               if (retries > 0) {
                 await new Promise(res => setTimeout(res, 2000));
@@ -129,19 +187,20 @@ Instruksi sangat penting berdasarkan Jenis Surat:
       }
 
       if (!responseText) {
-        if (lastError?.status === 429 || lastError?.message?.includes('429')) {
-          return res.status(429).json({ 
-            error: "Kuota harian Gemini API telah habis atau terlalu banyak permintaan. Silakan coba lagi besok atau beberapa saat lagi." 
-          });
+        let errMsg = "Gagal menyusun surat otomatis.";
+        if (lastError?.status === 404 || lastError?.message?.includes("404")) {
+          errMsg = "Model AI tidak ditemukan. Pastikan API Key Anda benar dan dari Google AI Studio.";
+        } else if (lastError?.status === 429) {
+          errMsg = "Kuota harian API telah habis atau limit tercapai.";
         }
-        throw lastError || new Error("Gagal menyusun surat otomatis setelah beberapa kali percobaan.");
+        return res.status(400).json({ error: errMsg });
       }
 
       res.json({ text: responseText.replace(/```[a-z]*\n?/gi, '').trim() });
 
     } catch (error: any) {
-      console.error("Gemini API Error:", error);
-      res.status(500).json({ error: error.message || "Failed to generate content" });
+      console.error("Gemini API Route Error:", error);
+      res.status(500).json({ error: error.message || "Internal Server Error" });
     }
   });
 

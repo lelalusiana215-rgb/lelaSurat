@@ -720,10 +720,14 @@ export default function App() {
           setApiCheckMessage(data.message || 'Koneksi API Key berhasil!');
         } else {
           setApiCheckStatus('error');
-          setApiCheckMessage(data.error || 'API Key tidak valid atau terjadi masalah koneksi.');
+          // Specifically mention the potential 404/Vertex AI issue if it comes back from server
+          setApiCheckMessage(data.error || 'API Key tidak valid atau model tidak ditemukan.');
         }
       } else {
-        throw new Error("Server mengirimkan respon tidak valid (HTML). Silakan coba beberapa saat lagi.");
+        // If we get HTML, it usually means the backend route crashed or returned a 404 page
+        const errorText = await response.text();
+        console.error("Server returned non-JSON response:", errorText.substring(0, 500));
+        throw new Error("Server mengirimkan respon tidak valid (HTML). Ini bisa terjadi jika server sedang restart atau ada masalah pada konfigurasi API.");
       }
     } catch (err: any) {
       setApiCheckStatus('error');
@@ -951,38 +955,6 @@ export default function App() {
               <div style="margin-bottom: 12pt;">
                 ${formData.isiSurat.split('\n').map(p => p.trim() ? `<p style="margin-top: 0; margin-bottom: 8pt; line-height: 1.5;">${p}</p>` : '').join('')}
               </div>
-              <div style="text-align: center; font-weight: bold; margin-bottom: 12pt; text-decoration: underline;">PEMBAGIAN TUGAS GURU TAHUN PELAJARAN</div>
-              <table border="1" style="width: 100%; border-collapse: collapse; margin-bottom: 18pt; font-size: 9pt;">
-                <thead>
-                  <tr style="background-color: #f8f9fa;">
-                    <th style="border: 1pt solid black; width: 25pt; padding: 3pt; text-align: center;">No</th>
-                    <th style="border: 1pt solid black; padding: 3pt; text-align: left;">Nama Guru / NIP</th>
-                    <th style="border: 1pt solid black; width: 45pt; padding: 3pt; text-align: center;">Gol</th>
-                    <th style="border: 1pt solid black; padding: 3pt; text-align: left;">Jabatan</th>
-                    <th style="border: 1pt solid black; padding: 3pt; text-align: left;">Tugas Mengajar</th>
-                    <th style="border: 1pt solid black; width: 35pt; padding: 3pt; text-align: center;">Jam</th>
-                    <th style="border: 1pt solid black; padding: 3pt; text-align: left;">Tugas Tambahan</th>
-                    <th style="border: 1pt solid black; width: 35pt; padding: 3pt; text-align: center;">Jam</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  ${formData.daftarGuru.map((guru: any, index: number) => `
-                    <tr>
-                      <td style="border: 1pt solid black; padding: 3pt; text-align: center; vertical-align: top;">${index + 1}</td>
-                      <td style="border: 1pt solid black; padding: 3pt; vertical-align: top;">
-                        <div style="font-weight: bold;">${guru.nama || '-'}</div>
-                        <div style="font-size: 8pt;">${guru.nip || '-'}</div>
-                      </td>
-                      <td style="border: 1pt solid black; padding: 3pt; text-align: center; vertical-align: top;">${guru.golongan || '-'}</td>
-                      <td style="border: 1pt solid black; padding: 3pt; vertical-align: top;">${guru.jabatan || '-'}</td>
-                      <td style="border: 1pt solid black; padding: 3pt; vertical-align: top;">${guru.tugasMengajar || '-'}</td>
-                      <td style="border: 1pt solid black; padding: 3pt; text-align: center; vertical-align: top;">${guru.jmlJam || '-'}</td>
-                      <td style="border: 1pt solid black; padding: 3pt; vertical-align: top;">${guru.tugasTambahan || '-'}</td>
-                      <td style="border: 1pt solid black; padding: 3pt; text-align: center; vertical-align: top;">${guru.jmlJamTambahan || '-'}</td>
-                    </tr>
-                  `).join('')}
-                </tbody>
-              </table>
             ` : `
               ${formData.isiSurat.split('\n').map(p => p.trim() ? `<p style="margin-top: 0; margin-bottom: 8pt; line-height: 1.5;">${p}</p>` : `<p style="margin: 0; line-height: 1.5;">&nbsp;</p>`).join('')}
             `}
@@ -1012,40 +984,54 @@ export default function App() {
           </table>
         </div>
 
-        ${formData.hasLampiran ? `
+        ${(formData.hasLampiran || isSKPBMLocal) ? `
           <div style="page-break-before: always; border-top: 1pt solid #ccc; padding-top: 24pt; margin-top: 36pt;">
             <table class="text-[10pt] mb-6">
-              <tr><td style="width: 80pt;">Lampiran</td><td style="width: 10pt;">:</td><td>${formData.jenisSurat}</td></tr>
+              <tr><td style="width: 80pt;">Lampiran</td><td style="width: 10pt;">:</td><td>${isSKPBMLocal ? 'Surat Keputusan' : formData.jenisSurat}</td></tr>
               <tr><td>Nomor</td><td>:</td><td>${formData.nomorSurat}</td></tr>
               <tr><td>Tanggal</td><td>:</td><td>${formData.tanggalSurat}</td></tr>
               <tr><td>Tentang</td><td>:</td><td class="font-bold">${formData.perihal}</td></tr>
             </table>
             
             <div class="text-center font-bold text-[12pt] underline uppercase mb-6 pt-4">
-              DAFTAR NAMA GURU / PEGAWAI
+              ${isSKPBMLocal ? 'PEMBAGIAN TUGAS GURU TAHUN PELAJARAN' : 'DAFTAR NAMA GURU / PEGAWAI'}
             </div>
             
-            <table class="border border-collapse text-[10pt]">
+            <table class="border border-collapse ${isSKPBMLocal ? 'text-[8pt]' : 'text-[10pt]'}">
               <thead>
                 <tr style="background-color: #f1f5f9;">
-                  <th class="border text-center" style="width: 30pt; padding: 5pt;">No</th>
-                  <th class="border" style="text-align: left; padding: 5pt;">Nama Lengkap / NIP</th>
-                  <th class="border" style="text-align: left; padding: 5pt;">Pangkat / Gol</th>
-                  <th class="border" style="text-align: left; padding: 5pt;">Jabatan</th>
-                  <th class="border" style="text-align: left; padding: 5pt;">Tugas / Peran</th>
+                  <th class="border text-center" style="width: 25pt; padding: 4pt;">No</th>
+                  <th class="border" style="text-align: left; padding: 4pt;">Nama Lengkap / NIP</th>
+                  <th class="border" style="text-align: center; padding: 4pt; width: 35pt;">Gol</th>
+                  <th class="border" style="text-align: left; padding: 4pt;">Jabatan</th>
+                  ${isSKPBMLocal ? `
+                    <th class="border" style="text-align: left; padding: 4pt;">Tugas Mengajar</th>
+                    <th class="border" style="text-align: center; padding: 4pt; width: 25pt;">Jam</th>
+                    <th class="border" style="text-align: left; padding: 4pt;">Tugas Tambahan</th>
+                    <th class="border" style="text-align: center; padding: 4pt; width: 25pt;">Jam</th>
+                  ` : `
+                    <th class="border" style="text-align: left; padding: 4pt;">Tugas / Peran</th>
+                  `}
                 </tr>
               </thead>
               <tbody>
                 ${formData.daftarGuru.map((guru, index) => `
                   <tr>
-                    <td class="border text-center" style="padding: 5pt; vertical-align: top;">${index + 1}</td>
-                    <td class="border" style="padding: 5pt; vertical-align: top;">
-                      <div class="font-bold">${guru.nama || '-'}</div>
-                      <div class="text-[9pt]">${guru.nip || '-'}</div>
+                    <td class="border text-center" style="padding: 4pt; vertical-align: top;">${index + 1}</td>
+                    <td class="border" style="padding: 4pt; vertical-align: top;">
+                      <div class="font-bold leading-tight">${guru.nama || '-'}</div>
+                      <div style="font-size: 7.5pt;">${guru.nip || '-'}</div>
                     </td>
-                    <td class="border" style="padding: 5pt; vertical-align: top;">${guru.golongan || '-'}</td>
-                    <td class="border" style="padding: 5pt; vertical-align: top;">${guru.jabatan || '-'}</td>
-                    <td class="border" style="padding: 5pt; vertical-align: top;">${guru.tugas || '-'}</td>
+                    <td class="border text-center" style="padding: 4pt; vertical-align: top;">${guru.golongan || '-'}</td>
+                    <td class="border" style="padding: 4pt; vertical-align: top;">${guru.jabatan || '-'}</td>
+                    ${isSKPBMLocal ? `
+                      <td class="border" style="padding: 4pt; vertical-align: top;">${guru.tugasMengajar || '-'}</td>
+                      <td class="border text-center" style="padding: 4pt; vertical-align: top;">${guru.jmlJam || '-'}</td>
+                      <td class="border" style="padding: 4pt; vertical-align: top;">${guru.tugasTambahan || '-'}</td>
+                      <td class="border text-center" style="padding: 4pt; vertical-align: top;">${guru.jmlJamTambahan || '-'}</td>
+                    ` : `
+                      <td class="border" style="padding: 4pt; vertical-align: top;">${guru.tugas || '-'}</td>
+                    `}
                   </tr>
                 `).join('')}
               </tbody>
@@ -1658,50 +1644,31 @@ export default function App() {
                       <div className="mb-6 text-justify text-[11pt]">
                         {formData.salamPembuka && !isSK && <div className="mb-4">{formData.salamPembuka}</div>}
                         
-                        {(isTugas || isSKPBM) ? (
+                        {isTugas ? (
                           <div className="mb-4">
                             <div className="mb-4 whitespace-pre-wrap leading-relaxed">{formData.isiSurat}</div>
-                            {isSKPBM && <div className="text-center font-bold mb-4 underline uppercase">PEMBAGIAN TUGAS GURU TAHUN PELAJARAN</div>}
                             <div className="overflow-x-auto mb-4">
-                              <table className={`w-full border-collapse border border-slate-950 ${isSKPBM ? 'text-[8pt]' : 'text-[10pt]'}`}>
+                              <table className="w-full border-collapse border border-slate-950 text-[10pt]">
                                 <thead>
                                   <tr className="bg-slate-50">
-                                    <th className="border border-slate-950 p-1 text-center w-8">No.</th>
-                                    <th className="border border-slate-950 p-1 text-left">Nama Guru / NIP</th>
-                                    <th className="border border-slate-950 p-1 text-left">Gol</th>
-                                    <th className="border border-slate-950 p-1 text-left">Jabatan</th>
-                                    {isSKPBM ? (
-                                      <>
-                                        <th className="border border-slate-950 p-1 text-left">Tugas Mengajar</th>
-                                        <th className="border border-slate-950 p-1 text-center">Jam</th>
-                                        <th className="border border-slate-950 p-1 text-left">Tugas Tambahan</th>
-                                        <th className="border border-slate-950 p-1 text-center">Jam</th>
-                                      </>
-                                    ) : (
-                                      <th className="border border-slate-950 p-1 text-left">Tugas</th>
-                                    )}
+                                    <th className="border border-slate-950 p-1.5 text-center w-8">No.</th>
+                                    <th className="border border-slate-950 p-1.5 text-left">Nama Guru / NIP</th>
+                                    <th className="border border-slate-950 p-1.5 text-left">Pangkat / Gol</th>
+                                    <th className="border border-slate-950 p-1.5 text-left">Jabatan</th>
+                                    <th className="border border-slate-950 p-1.5 text-left">Tugas</th>
                                   </tr>
                                 </thead>
                                 <tbody>
                                   {formData.daftarGuru.map((guru, index) => (
                                     <tr key={guru.id}>
-                                      <td className="border border-slate-950 p-1 text-center align-top">{index + 1}.</td>
-                                      <td className="border border-slate-950 p-1 align-top leading-tight">
+                                      <td className="border border-slate-950 p-1.5 text-center align-top">{index + 1}.</td>
+                                      <td className="border border-slate-950 p-1.5 align-top leading-tight">
                                         <div className="font-bold">{guru.nama || '...'}</div>
-                                        <div className="text-[7pt] text-slate-500">{guru.nip || '-'}</div>
+                                        <div className="text-[9pt]">{guru.nip || '-'}</div>
                                       </td>
-                                      <td className="border border-slate-950 p-1 align-top text-center">{guru.golongan || '-'}</td>
-                                      <td className="border border-slate-950 p-1 align-top">{guru.jabatan || '-'}</td>
-                                      {isSKPBM ? (
-                                        <>
-                                          <td className="border border-slate-950 p-1 align-top">{guru.tugasMengajar || '-'}</td>
-                                          <td className="border border-slate-950 p-1 align-top text-center">{guru.jmlJam || '-'}</td>
-                                          <td className="border border-slate-950 p-1 align-top">{guru.tugasTambahan || '-'}</td>
-                                          <td className="border border-slate-950 p-1 align-top text-center">{guru.jmlJamTambahan || '-'}</td>
-                                        </>
-                                      ) : (
-                                        <td className="border border-slate-950 p-1 align-top">{guru.tugas || '-'}</td>
-                                      )}
+                                      <td className="border border-slate-950 p-1.5 align-top">{guru.golongan || '-'}</td>
+                                      <td className="border border-slate-950 p-1.5 align-top">{guru.jabatan || '-'}</td>
+                                      <td className="border border-slate-950 p-1.5 align-top">{guru.tugas || '-'}</td>
                                     </tr>
                                   ))}
                                 </tbody>
@@ -1709,7 +1676,7 @@ export default function App() {
                             </div>
                           </div>
                         ) : (
-                          <div className="whitespace-pre-wrap leading-relaxed">{formData.isiSurat}</div>
+                          <div className="whitespace-pre-wrap leading-relaxed mb-4">{formData.isiSurat}</div>
                         )}
                       </div>
 
@@ -1737,12 +1704,12 @@ export default function App() {
                     </div>
 
                     {/* HALAMAN LAMPIRAN (Hanya Tampil Jika Aktif) */}
-                    {formData.hasLampiran && (
+                    {(formData.hasLampiran || isSKPBM) && (
                       <div className="mt-20 border-t border-slate-200 pt-10" style={{ pageBreakBefore: 'always' }}>
                         <div className="mb-8">
-                          <table className="text-[10pt] w-full mb-6">
+                          <table className="text-[10pt] w-full mb-6 italic">
                             <tbody>
-                              <tr><td className="w-24">Lampiran</td><td className="w-4">:</td><td>{formData.jenisSurat}</td></tr>
+                              <tr><td className="w-24">Lampiran</td><td className="w-4">:</td><td>{isSKPBM ? 'Surat Keputusan' : formData.jenisSurat}</td></tr>
                               <tr><td>Nomor</td><td>:</td><td>{formData.nomorSurat}</td></tr>
                               <tr><td>Tanggal</td><td>:</td><td>{formData.tanggalSurat}</td></tr>
                               <tr><td>Tentang</td><td>:</td><td className="font-bold">{formData.perihal}</td></tr>
@@ -1750,25 +1717,48 @@ export default function App() {
                           </table>
                           
                           <div className="text-center font-bold text-[12pt] underline uppercase mb-6 pt-4">
-                            DAFTAR NAMA GURU / PEGAWAI
+                            {isSKPBM ? 'PEMBAGIAN TUGAS GURU TAHUN PELAJARAN' : 'DAFTAR NAMA GURU / PEGAWAI'}
                           </div>
                           
-                          <table className="w-full border-collapse border border-black text-[10pt]">
+                          <table className="w-full border-collapse border border-black text-[9pt]">
                             <thead>
-                              <tr className="bg-slate-100 italic font-bold">
-                                <th className="border border-black p-2 text-center w-12 text-[10pt]">No</th>
-                                <th className="border border-black p-2 text-left text-[10pt]">Nama Lengkap</th>
-                                <th className="border border-black p-2 text-left text-[10pt]">NIP / No. Identitas</th>
-                                <th className="border border-black p-2 text-left text-[10pt]">Jabatan / Peran</th>
+                              <tr className="bg-slate-100 font-bold">
+                                <th className="border border-black p-1 text-center w-8">No</th>
+                                <th className="border border-black p-1 text-left">Nama Lengkap / NIP</th>
+                                <th className="border border-black p-1 text-center w-12">Gol</th>
+                                <th className="border border-black p-1 text-left">Jabatan</th>
+                                {isSKPBM ? (
+                                  <>
+                                    <th className="border border-black p-1 text-left">Tugas Mengajar</th>
+                                    <th className="border border-black p-1 text-center w-8">Jam</th>
+                                    <th className="border border-black p-1 text-left">Tugas Tambahan</th>
+                                    <th className="border border-black p-1 text-center w-8">Jam</th>
+                                  </>
+                                ) : (
+                                  <th className="border border-black p-1 text-left">Tugas / Peran</th>
+                                )}
                               </tr>
                             </thead>
                             <tbody>
                               {formData.daftarGuru.map((guru, index) => (
                                 <tr key={guru.id}>
-                                  <td className="border border-black p-2 text-center text-[10pt]">{index + 1}</td>
-                                  <td className="border border-black p-2 text-[10pt]">{guru.nama || '-'}</td>
-                                  <td className="border border-black p-2 text-[10pt]">{guru.nip || '-'}</td>
-                                  <td className="border border-black p-2 text-[10pt]">{guru.jabatan || '-'}</td>
+                                  <td className="border border-black p-1 text-center align-top">{index + 1}</td>
+                                  <td className="border border-black p-1 align-top">
+                                    <div className="font-bold leading-tight">{guru.nama || '-'}</div>
+                                    <div className="text-[7pt] text-slate-500">{guru.nip || '-'}</div>
+                                  </td>
+                                  <td className="border border-black p-1 text-center align-top">{guru.golongan || '-'}</td>
+                                  <td className="border border-black p-1 align-top">{guru.jabatan || '-'}</td>
+                                  {isSKPBM ? (
+                                    <>
+                                      <td className="border border-black p-1 align-top">{guru.tugasMengajar || '-'}</td>
+                                      <td className="border border-black p-1 text-center align-top">{guru.jmlJam || '-'}</td>
+                                      <td className="border border-black p-1 align-top">{guru.tugasTambahan || '-'}</td>
+                                      <td className="border border-black p-1 text-center align-top">{guru.jmlJamTambahan || '-'}</td>
+                                    </>
+                                  ) : (
+                                    <td className="border border-black p-1 align-top">{guru.tugas || '-'}</td>
+                                  )}
                                 </tr>
                               ))}
                             </tbody>
@@ -2014,6 +2004,9 @@ export default function App() {
                     >
                       Dapatkan API Key Gratis di Google AI Studio <ExternalLink className="w-3 h-3" />
                     </a>
+                    <p className="text-[10px] text-slate-400 mt-1">
+                      Catatan: Gunakan API Key dari <strong>Google AI Studio</strong>. API Key dari Vertex AI (Cloud Console) mungkin tidak kompatibel.
+                    </p>
                   </div>
                 </div>
               )}
