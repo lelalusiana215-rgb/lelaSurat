@@ -25,17 +25,61 @@ async function startServer() {
     res.json({ status: "ok", time: new Date().toISOString() });
   });
 
+  // API route for checking custom API Key connection
+  app.post("/api/check-api-key", async (req, res) => {
+    try {
+      const { apiKey } = req.body;
+      const effectiveApiKey = apiKey || process.env.GEMINI_API_KEY;
+
+      if (!effectiveApiKey) {
+        return res.status(400).json({ error: "API Key tidak boleh kosong." });
+      }
+
+      const ai = new GoogleGenAI({
+        apiKey: effectiveApiKey,
+        httpOptions: {
+          headers: {
+            'User-Agent': 'aistudio-build',
+          }
+        }
+      });
+
+      // Try generating a brief, quick test response
+      const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: "Balas hanya dengan kata 'OK' untuk tes koneksi.",
+      });
+
+      if (response && response.text) {
+        return res.json({ success: true, message: "Koneksi berhasil! API Key Anda aktif dan merespons dengan baik." });
+      } else {
+        return res.status(400).json({ error: "Gagal memverifikasi API Key: Respon kosong dari model." });
+      }
+    } catch (error: any) {
+      console.error("Check API Key connection failed:", error);
+      let errMsg = error.message || "Gagal menghubungi Gemini API.";
+      if (error.status === 400 || error.message?.includes("API_KEY_INVALID") || error.message?.includes("invalid") || error.message?.includes("Invalid API key")) {
+        errMsg = "API Key tidak valid atau salah. Harap periksa kembali.";
+      } else if (error.status === 429 || error.message?.includes("Quota exceeded") || error.message?.includes("429")) {
+        errMsg = "Kuota untuk API Key Anda sudah melampaui batas (Rate Limit / Quota Exceeded).";
+      }
+      res.status(400).json({ error: errMsg });
+    }
+  });
+
   // API route for Gemini generation
   app.post("/api/generate-letter", async (req, res) => {
     try {
-      const { jenisSurat, perihal, namaTujuan } = req.body;
+      const { jenisSurat, perihal, namaTujuan, apiKey: clientApiKey } = req.body;
       
-      if (!process.env.GEMINI_API_KEY) {
+      const effectiveApiKey = clientApiKey || process.env.GEMINI_API_KEY;
+
+      if (!effectiveApiKey) {
         return res.status(500).json({ error: "GEMINI_API_KEY is not configured" });
       }
 
       const ai = new GoogleGenAI({
-        apiKey: process.env.GEMINI_API_KEY,
+        apiKey: effectiveApiKey,
         httpOptions: {
           headers: {
             'User-Agent': 'aistudio-build',

@@ -20,7 +20,15 @@ import {
   Database,
   Lock,
   Key,
-  ShieldCheck
+  ShieldCheck,
+  Eye,
+  EyeOff,
+  LogOut,
+  ArrowRight,
+  Laptop,
+  ExternalLink,
+  CheckCircle2,
+  AlertCircle
 } from 'lucide-react';
 import { initSupabase, getSupabase } from './lib/supabase';
 
@@ -40,11 +48,26 @@ const safeSetStorage = (key: string, value: string) => {
   }
 };
 
+import { LandingPage } from './components/LandingPage';
+
 export default function App() {
+  const [showLanding, setShowLanding] = useState(() => {
+    return safeGetStorage('tu_authorized') !== 'true';
+  });
   const [isAuthorized, setIsAuthorized] = useState(() => {
     return safeGetStorage('tu_authorized') === 'true';
   });
+  const [isDemo, setIsDemo] = useState(() => {
+    return safeGetStorage('tu_is_demo') === 'true';
+  });
+  const [customApiKey, setCustomApiKey] = useState(() => {
+    return safeGetStorage('tu_custom_api_key') || '';
+  });
+  const [checkingApiKey, setCheckingApiKey] = useState(false);
+  const [apiCheckStatus, setApiCheckStatus] = useState<'idle' | 'success' | 'error'>('idle');
+  const [apiCheckMessage, setApiCheckMessage] = useState('');
   const [accessKey, setAccessKey] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [loginError, setLoginError] = useState(false);
 
   const [activeTab, setActiveTab] = useState('buat'); // buat, riwayat, pengaturan
@@ -56,9 +79,9 @@ export default function App() {
   const [schoolData, setSchoolData] = useState(() => {
     const saved = safeGetStorage('tu_school_data');
     return saved ? JSON.parse(saved) : {
-      namaInstansi: 'PEMERINTAH PROVINSI JAWA BARAT\nDINAS PENDIDIKAN\nSMK NEGERI 1 CONTOH',
-      alamat: 'Jl. Pendidikan No. 123, Kota Contoh, Provinsi Jawa Barat 40123',
-      kontak: 'Telp: (022) 1234567 | Email: info@smkn1contoh.sch.id | Web: www.smkn1contoh.sch.id',
+      namaInstansi: 'PEMERINTAH KABUPATEN / KOTA\nDINAS PENDIDIKAN\nSEKOLAH / UNIT KERJA ANDA',
+      alamat: 'Alamat lengkap instansi Anda di sini, Kota, Provinsi 12345',
+      kontak: 'Tel: (000) 000000 | Email: info@instansi.sch.id | Web: www.instansi.sch.id',
       logo: '', // base64 (Logo Kiri)
       logoKanan: '' // base64 (Logo Kanan)
     };
@@ -70,19 +93,19 @@ export default function App() {
     nomorSurat: '',
     lampiran: '-',
     perihal: '',
-    tempatSurat: 'Kota Contoh',
+    tempatSurat: 'Kota',
     namaTujuan: '',
     alamatTujuan: '',
     salamPembuka: 'Dengan hormat,',
     isiSurat: 'Sehubungan dengan akan dilaksanakannya rapat koordinasi evaluasi program sekolah, kami mengundang Bapak/Ibu untuk hadir pada:\n\nHari, Tanggal :\nWaktu :\nTempat :\nAgenda :',
     penutup: 'Demikian surat undangan ini kami sampaikan. Atas perhatian dan kehadiran Bapak/Ibu, kami ucapkan terima kasih.',
     tanggalSurat: new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' }),
-    namaKepsek: 'Dr. H. Ahmad Sudirman, M.Pd.',
-    nipKepsek: '19700101 199512 1 001',
+    namaKepsek: 'Nama Kepala Sekolah, Gelar.',
+    nipKepsek: '19xxxxxxxx xxxxxx x xxx',
     ttdDigital: '', // base64
     hasLampiran: false,
     daftarGuru: [
-      { id: Date.now(), nama: '', nip: '', jabatan: '' }
+      { id: Date.now(), nama: '', nip: '', jabatan: '', golongan: '', tugas: '', tugasMengajar: '', jmlJam: '', tugasTambahan: '', jmlJamTambahan: '' }
     ]
   });
 
@@ -216,7 +239,7 @@ export default function App() {
     const paddedNum = String(nextNum).padStart(3, '0');
     setFormData(prev => ({
       ...prev,
-      nomorSurat: `${paddedNum}/${kodeJenis}/SMKN1/${year}`
+      nomorSurat: `${paddedNum}/${kodeJenis}/NST/${year}`
     }));
   };
 
@@ -224,11 +247,14 @@ export default function App() {
     const kodes: Record<string, string> = {
       'Surat Undangan': 'UND',
       'Surat Tugas': 'ST',
+      'Surat Tugas (Tanpa Tabel)': 'ST',
       'Surat Keputusan': 'SK',
       'Surat Pemberitahuan': 'PENG',
       'Surat Permohonan': 'MOHON',
       'Surat Peminjaman': 'PINJAM',
-      'Surat Edaran': 'SE'
+      'Surat Edaran': 'SE',
+      'Surat Keterangan': 'SKET',
+      'SK Pembagian Tugas (SKPBM)': 'SK-PBM'
     };
     return kodes[jenis] || 'UMUM';
   };
@@ -240,9 +266,14 @@ export default function App() {
       penutup: 'Demikian surat undangan ini kami sampaikan. Atas perhatian dan kehadiran Bapak/Ibu, kami ucapkan terima kasih.'
     },
     'Surat Tugas': {
-      salam: 'Yang bertanda tangan di bawah ini Kepala Sekolah, memberikan tugas kepada:',
-      isi: 'Nama :\nNIP :\nJabatan :\n\nUntuk melaksanakan kegiatan pembinaan dan pengawasan pada:\nHari, Tanggal :\nTempat :',
+      salam: 'Yang bertanda tangan di bawah ini Kepala Sekolah, dengan ini menugaskan kepada:',
+      isi: 'Untuk melaksanakan tugas kedinasan sebagai berikut:',
       penutup: 'Demikian Surat Tugas ini diberikan untuk dapat dilaksanakan dengan sebaik-baiknya dan penuh tanggung jawab.'
+    },
+    'Surat Tugas (Tanpa Tabel)': {
+      salam: 'Yang bertanda tangan di bawah ini Kepala Sekolah, memberikan tugas kepada:',
+      isi: 'Nama :\nNIP :\nJabatan :\n\nUntuk melaksanakan kegiatan pembinaan dan pengawasan pada:\nHari, Tanggal :\nTempat :\nAgenda :',
+      penutup: 'Demikian surat tugas ini dibuat untuk dilaksanakan dengan penuh tanggung jawab.'
     },
     'Surat Keputusan': {
       salam: '',
@@ -256,7 +287,7 @@ export default function App() {
     },
     'Surat Permohonan': {
       salam: 'Dengan hormat,',
-      isi: 'Sehubungan dengan akan diadakannya kegiatan [Nama Kegiatan] yang diselenggarakan oleh OSIS SMK Negeri 1 Contoh pada:\n\nHari, Tanggal :\nWaktu :\nTempat :\n\nOleh karena itu, kami bermaksud memohon bantuan dana/izin tempat kepada Bapak/Ibu demi kelancaran kegiatan tersebut.',
+      isi: 'Sehubungan dengan akan diadakannya kegiatan [Nama Kegiatan] yang diselenggarakan oleh [Nama Organisasi/Sekolah] pada:\n\nHari, Tanggal :\nWaktu :\nTempat :\n\nOleh karena itu, kami bermaksud memohon bantuan dana/izin tempat kepada Bapak/Ibu demi kelancaran kegiatan tersebut.',
       penutup: 'Demikian surat permohonan ini kami sampaikan. Atas perhatian dan perkenan Bapak/Ibu, kami ucapkan terima kasih.'
     },
     'Surat Peminjaman': {
@@ -268,6 +299,16 @@ export default function App() {
       salam: 'Dengan hormat,',
       isi: 'Memperhatikan instruksi dari Dinas Pendidikan Provinsi mengenai pelaksanaan hari libur nasional dan cuti bersama, dengan ini kami sampaikan hal-hal sebagai berikut:\n\n1. Kegiatan belajar mengajar (KBM) ditiadakan pada tanggal...\n2. Seluruh siswa wajib kembali masuk ke sekolah pada tanggal...\n3. Selama hari libur, siswa dihimbau untuk tetap belajar di rumah.',
       penutup: 'Demikian Surat Edaran ini disampaikan untuk menjadi perhatian dan dilaksanakan sebagaimana mestinya.'
+    },
+    'Surat Keterangan': {
+      salam: 'Yang bertanda tangan di bawah ini Kepala Sekolah, menerangkan bahwa:',
+      isi: 'Nama :\nTempat, Tgl Lahir :\nNIS / NISN :\nKelas :\n\nAdalah benar siswa kami yang masih aktif belajar pada tahun ajaran [Tahun Ajaran].\n\nSurat keterangan ini diberikan untuk [Tujuan Keterangan, misal: Pindah Sekolah / Syarat Lomba / Kehilangan / Diterima].',
+      penutup: 'Demikian surat keterangan ini kami buat dengan sebenarnya agar dapat dipergunakan sebagaimana mestinya.'
+    },
+    'SK Pembagian Tugas (SKPBM)': {
+      salam: '',
+      isi: 'Menimbang :\na. Bahwa dalam rangka memperlancar proses kegiatan belajar mengajar (KBM), perlu menetapkan pembagian tugas guru dalam kegiatan belajar dan ekstrakurikuler.\n\nMengingat :\n1. Undang-Undang Nomor 20 Tahun 2003 tentang Sistem Pendidikan Nasional.\n2. Peraturan Pemerintah Nomor 19 Tahun 2005 tentang Standar Nasional Pendidikan.\n\nMEMUTUSKAN\n\nMenetapkan :\nPERTAMA : Membagi tugas guru dalam kegiatan belajar mengajar atau bimbingan dan penyuluhan seperti tersebut dalam lampiran keputusan ini.\nKEDUA : Masing-masing guru melaporkan pelaksanaan tugasnya secara tertulis dan berkala kepada Kepala Sekolah.\nKETIGA : Biaya yang timbul akibat keputusan ini disesuaikan dengan anggaran yang ada.\nKEEMPAT : Keputusan ini berlaku mulai ditetapkan.',
+      penutup: 'Apabila terdapat kekeliruan dalam keputusan ini akan diperbaiki sebagaimana mestinya.'
     }
   };
 
@@ -281,7 +322,7 @@ export default function App() {
       salamPembuka: tpl.salam,
       isiSurat: tpl.isi,
       penutup: tpl.penutup,
-      lampiran: ['Surat Tugas', 'Surat Keputusan', 'Surat Edaran'].includes(jenis) ? '' : prev.lampiran
+      lampiran: ['Surat Tugas', 'Surat Tugas (Tanpa Tabel)', 'Surat Keputusan', 'Surat Edaran', 'SK Pembagian Tugas (SKPBM)'].includes(jenis) ? '' : prev.lampiran
     }));
   };
 
@@ -293,7 +334,7 @@ export default function App() {
   const addGuru = () => {
     setFormData(prev => ({
       ...prev,
-      daftarGuru: [...prev.daftarGuru, { id: Date.now(), nama: '', nip: '', jabatan: '' }]
+      daftarGuru: [...prev.daftarGuru, { id: Date.now(), nama: '', nip: '', jabatan: '', golongan: '', tugas: '', tugasMengajar: '', jmlJam: '', tugasTambahan: '', jmlJamTambahan: '' }]
     }));
   };
 
@@ -333,7 +374,13 @@ export default function App() {
                   id: Date.now() + Math.random(),
                   nama: String(row[0] || '').trim(),
                   nip: String(row[1] || '').trim(),
-                  jabatan: String(row[2] || '').trim()
+                  golongan: String(row[2] || '').trim(),
+                  jabatan: String(row[3] || '').trim(),
+                  tugas: String(row[4] || '').trim(),
+                  tugasMengajar: String(row[5] || '').trim(),
+                  jmlJam: String(row[6] || '').trim(),
+                  tugasTambahan: String(row[7] || '').trim(),
+                  jmlJamTambahan: String(row[8] || '').trim()
                 };
               }
               return null;
@@ -367,7 +414,13 @@ export default function App() {
                   id: Date.now() + Math.random(),
                   nama: parts[0]?.trim() || '',
                   nip: parts[1]?.trim() || '',
-                  jabatan: parts[2]?.trim() || ''
+                  golongan: parts[2]?.trim() || '',
+                  jabatan: parts[3]?.trim() || '',
+                  tugas: parts[4]?.trim() || '',
+                  tugasMengajar: parts[5]?.trim() || '',
+                  jmlJam: parts[6]?.trim() || '',
+                  tugasTambahan: parts[7]?.trim() || '',
+                  jmlJamTambahan: parts[8]?.trim() || ''
                 };
               }
               return null;
@@ -384,7 +437,7 @@ export default function App() {
             });
             alert(`Berhasil mengimpor ${importedGuru.length} data guru dari CSV.`);
           } else {
-            alert("Format file tidak dikenali. Gunakan format CSV (Nama, NIP, Jabatan).");
+            alert("Format file tidak dikenali. Gunakan format CSV (Nama, NIP, Golongan, Jabatan, Tugas).");
           }
         };
         reader.readAsText(file);
@@ -394,10 +447,9 @@ export default function App() {
 
   const downloadExcelTemplate = () => {
     const data = [
-      ['Nama Lengkap', 'NIP / Identitas', 'Jabatan / Peran'],
-      ['Dr. H. Budi Santoso, M.Pd.', '19700101 199512 1 001', 'Ketua Panitia'],
-      ['Siti Aminah, S.Pd.', '19850210 201001 2 005', 'Sekretaris'],
-      ['Andi Wijaya, S.T.', '-', 'Anggota / Guru Produktif']
+      ['Nama Lengkap', 'NIP / Identitas', 'Pangkat/Gol', 'Jabatan', 'Tugas/Peran', 'Tugas Mengajar (SKPBM)', 'Jam (SKPBM)', 'Tugas Tambahan (SKPBM)', 'Jam Tambahan (SKPBM)'],
+      ['Guru/Staf Contoh 1', '19700101 199512 1 001', 'Pembina, IV/a', 'Guru Madya', 'Pendamping Lomba', 'Matematika - XII IPA 1', '24', 'Waka Kurikulum', '12'],
+      ['Guru/Staf Contoh 2', '19850210 201001 2 005', 'Penata, III/c', 'Guru Muda', 'Ketua Panitia', 'Bahasa Inggris - XI IPS 2', '27', '-', '0'],
     ];
 
     const worksheet = XLSX.utils.aoa_to_sheet(data);
@@ -458,6 +510,10 @@ export default function App() {
   };
 
   const generateIsiSuratAI = async () => {
+    if (isDemo) {
+      alert("Mode Demo: Fitur AI tidak tersedia di akun demo. Silakan aktifkan lisensi penuh.");
+      return;
+    }
     if (!formData.perihal) {
       alert("Silakan isi 'Perihal' (atau 'Tentang') terlebih dahulu agar AI tahu topik surat yang harus ditulis.");
       return;
@@ -472,7 +528,8 @@ export default function App() {
         body: JSON.stringify({
           jenisSurat: formData.jenisSurat,
           perihal: formData.perihal,
-          namaTujuan: formData.namaTujuan || 'Pihak Terkait'
+          namaTujuan: formData.namaTujuan || 'Pihak Terkait',
+          apiKey: customApiKey // Send custom API key if user has one
         })
       });
 
@@ -501,6 +558,10 @@ export default function App() {
   };
 
   const simpanKeRiwayat = async () => {
+    if (isDemo) {
+      alert("Mode Demo: Anda tidak dapat menyimpan ke cloud dalam mode demo.");
+      return;
+    }
     const isStandardLocal = ['Surat Undangan', 'Surat Pemberitahuan', 'Surat Permohonan', 'Surat Peminjaman'].includes(formData.jenisSurat);
     if (isStandardLocal && (!formData.perihal || !formData.namaTujuan)) {
       alert("Mohon isi minimal Perihal dan Nama Tujuan Instansi.");
@@ -549,7 +610,7 @@ export default function App() {
   const loadDariRiwayat = (record: any) => {
     setFormData({
       ...record,
-      tempatSurat: record.tempatSurat || 'Kota Contoh',
+      tempatSurat: record.tempatSurat || 'Kota',
       tanggalSurat: new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })
     });
     setActiveTab('buat');
@@ -572,24 +633,24 @@ export default function App() {
   };
 
   const resetForm = () => {
-    if(window.confirm("Yakin ingin mengosongkan form?")) {
-      setFormData(prev => ({
-        ...prev,
-        nomorSurat: '',
-        lampiran: '-',
-        perihal: '',
-        tempatSurat: 'Kota Contoh',
-        namaTujuan: '',
-        alamatTujuan: '',
-        salamPembuka: '',
-        isiSurat: '',
-        penutup: '',
-        ttdDigital: '',
-        hasLampiran: false,
-        daftarGuru: [{ id: Date.now(), nama: '', nip: '', jabatan: '' }]
-      }));
-      generateAutoNumber();
-    }
+    const currentJenis = formData.jenisSurat;
+    const tpl = templates[currentJenis] || templates['Surat Undangan'];
+    
+    setFormData(prev => ({
+      ...prev,
+      nomorSurat: '',
+      lampiran: ['Surat Tugas', 'Surat Keputusan', 'Surat Edaran'].includes(currentJenis) ? '' : '-',
+      perihal: '',
+      namaTujuan: '',
+      alamatTujuan: '',
+      salamPembuka: tpl.salam,
+      isiSurat: tpl.isi,
+      penutup: tpl.penutup,
+      ttdDigital: '',
+      hasLampiran: false,
+      daftarGuru: [{ id: Date.now(), nama: '', nip: '', jabatan: '', golongan: '', tugas: '', tugasMengajar: '', jmlJam: '', tugasTambahan: '', jmlJamTambahan: '' }]
+    }));
+    generateAutoNumber();
   };
 
   const handlePrint = () => {
@@ -602,7 +663,9 @@ export default function App() {
     
     if (accessKey === masterKey) {
       setIsAuthorized(true);
+      setIsDemo(false);
       safeSetStorage('tu_authorized', 'true');
+      safeSetStorage('tu_is_demo', 'false');
       setLoginError(false);
     } else {
       setLoginError(true);
@@ -610,11 +673,53 @@ export default function App() {
     }
   };
 
+  const handleDemoLogin = () => {
+    setIsAuthorized(true);
+    setIsDemo(true);
+    safeSetStorage('tu_authorized', 'true');
+    safeSetStorage('tu_is_demo', 'true');
+  };
+
   const handleLogout = () => {
-    if (window.confirm("Yakin ingin keluar dan mengunci aplikasi?")) {
-      setIsAuthorized(false);
-      safeSetStorage('tu_authorized', 'false');
-      setAccessKey('');
+    setIsAuthorized(false);
+    setIsDemo(false);
+    safeSetStorage('tu_authorized', 'false');
+    safeSetStorage('tu_is_demo', 'false');
+    setAccessKey('');
+  };
+
+  const checkApiKeyConnection = async () => {
+    if (!customApiKey) {
+      alert("Masukkan API Key terlebih dahulu untuk mengecek koneksi.");
+      return;
+    }
+
+    setCheckingApiKey(true);
+    setApiCheckStatus('idle');
+    setApiCheckMessage('');
+
+    try {
+      const response = await fetch('/api/check-api-key', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ apiKey: customApiKey }),
+      });
+
+      const data = await response.json();
+      if (response.ok && data.success) {
+        setApiCheckStatus('success');
+        setApiCheckMessage(data.message || 'Koneksi API Key berhasil!');
+      } else {
+        setApiCheckStatus('error');
+        setApiCheckMessage(data.error || 'API Key tidak valid atau terjadi masalah koneksi.');
+      }
+    } catch (err: any) {
+      setApiCheckStatus('error');
+      setApiCheckMessage(err.message || 'Gagal menghubungi server.');
+    } finally {
+      setCheckingApiKey(false);
     }
   };
 
@@ -722,7 +827,10 @@ export default function App() {
     
     const isStandardLocal = ['Surat Undangan', 'Surat Pemberitahuan', 'Surat Permohonan', 'Surat Peminjaman'].includes(formData.jenisSurat);
     const isTugasLocal = formData.jenisSurat === 'Surat Tugas';
+    const isSKPBMLocal = formData.jenisSurat === 'SK Pembagian Tugas (SKPBM)';
+    const isTugasTanpaTabelLocal = formData.jenisSurat === 'Surat Tugas (Tanpa Tabel)';
     const isSKLocal = formData.jenisSurat === 'Surat Keputusan';
+    const isKeteranganLocal = formData.jenisSurat === 'Surat Keterangan';
 
     let contentHTML = `
       <div class="printable-content">
@@ -769,11 +877,15 @@ export default function App() {
             </div>
           ` : ''}
 
-          ${isTugasLocal ? `
+          ${(isTugasLocal || isTugasTanpaTabelLocal || isSKPBMLocal) ? `
             <div class="mb-8 text-center pt-2">
-              <div class="font-bold text-[14pt] underline uppercase tracking-wide">SURAT TUGAS</div>
+              <div class="font-bold text-[14pt] underline uppercase tracking-wide">${isSKPBMLocal ? 'SURAT KEPUTUSAN' : 'SURAT TUGAS'}</div>
               <div class="text-[11pt]">Nomor: ${formData.nomorSurat || '-'}</div>
-              <div class="text-right mt-2 text-[11pt]">${formData.tempatSurat}, ${formData.tanggalSurat}</div>
+              ${isSKPBMLocal ? `
+                <div class="mt-4 font-bold uppercase underline">TENTANG</div>
+                <div class="font-bold uppercase">${formData.perihal || 'PEMBAGIAN TUGAS GURU'}</div>
+              ` : ''}
+              <div class="text-right mt-2 text-[11pt] text-[#000]">${formData.tempatSurat}, ${formData.tanggalSurat}</div>
             </div>
           ` : ''}
 
@@ -786,9 +898,84 @@ export default function App() {
             </div>
           ` : ''}
 
+          ${isKeteranganLocal ? `
+            <div class="mb-8 text-center pt-2">
+              <div class="font-bold text-[14pt] underline uppercase tracking-wide">SURAT KETERANGAN</div>
+              <div class="text-[11pt]">Nomor: ${formData.nomorSurat || '-'}</div>
+            </div>
+          ` : ''}
+
           <div class="mb-6 text-justify">
             ${formData.salamPembuka && !isSKLocal ? `<p style="margin-top: 0; margin-bottom: 12pt;">${formData.salamPembuka}</p>` : ''}
-            ${formData.isiSurat.split('\n').map(p => p.trim() ? `<p style="margin-top: 0; margin-bottom: 8pt; line-height: 1.5;">${p}</p>` : `<p style="margin: 0; line-height: 1.5;">&nbsp;</p>`).join('')}
+            
+            ${isTugasLocal ? `
+              <div style="margin-bottom: 12pt;">
+                ${formData.isiSurat.split('\n').map(p => p.trim() ? `<p style="margin-top: 0; margin-bottom: 8pt; line-height: 1.5;">${p}</p>` : '').join('')}
+              </div>
+              <table border="1" style="width: 100%; border-collapse: collapse; margin-bottom: 18pt; font-size: 10pt;">
+                <thead>
+                  <tr style="background-color: #f8f9fa;">
+                    <th style="border: 1pt solid black; width: 30pt; padding: 4pt; text-align: center;">No</th>
+                    <th style="border: 1pt solid black; padding: 4pt; text-align: left;">Nama/NIP</th>
+                    <th style="border: 1pt solid black; padding: 4pt; text-align: left;">Pangkat/Gol</th>
+                    <th style="border: 1pt solid black; padding: 4pt; text-align: left;">Jabatan</th>
+                    <th style="border: 1pt solid black; padding: 4pt; text-align: left;">Tugas</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${formData.daftarGuru.map((guru: any, index: number) => `
+                    <tr>
+                      <td style="border: 1pt solid black; padding: 4pt; text-align: center; vertical-align: top;">${index + 1}</td>
+                      <td style="border: 1pt solid black; padding: 4pt; vertical-align: top;">
+                        <div style="font-weight: bold;">${guru.nama || '-'}</div>
+                        <div style="font-size: 9pt;">${guru.nip || '-'}</div>
+                      </td>
+                      <td style="border: 1pt solid black; padding: 4pt; vertical-align: top;">${guru.golongan || '-'}</td>
+                      <td style="border: 1pt solid black; padding: 4pt; vertical-align: top;">${guru.jabatan || '-'}</td>
+                      <td style="border: 1pt solid black; padding: 4pt; vertical-align: top;">${guru.tugas || '-'}</td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            ` : isSKPBMLocal ? `
+              <div style="margin-bottom: 12pt;">
+                ${formData.isiSurat.split('\n').map(p => p.trim() ? `<p style="margin-top: 0; margin-bottom: 8pt; line-height: 1.5;">${p}</p>` : '').join('')}
+              </div>
+              <div style="text-align: center; font-weight: bold; margin-bottom: 12pt; text-decoration: underline;">PEMBAGIAN TUGAS GURU TAHUN PELAJARAN</div>
+              <table border="1" style="width: 100%; border-collapse: collapse; margin-bottom: 18pt; font-size: 9pt;">
+                <thead>
+                  <tr style="background-color: #f8f9fa;">
+                    <th style="border: 1pt solid black; width: 25pt; padding: 3pt; text-align: center;">No</th>
+                    <th style="border: 1pt solid black; padding: 3pt; text-align: left;">Nama Guru / NIP</th>
+                    <th style="border: 1pt solid black; width: 45pt; padding: 3pt; text-align: center;">Gol</th>
+                    <th style="border: 1pt solid black; padding: 3pt; text-align: left;">Jabatan</th>
+                    <th style="border: 1pt solid black; padding: 3pt; text-align: left;">Tugas Mengajar</th>
+                    <th style="border: 1pt solid black; width: 35pt; padding: 3pt; text-align: center;">Jam</th>
+                    <th style="border: 1pt solid black; padding: 3pt; text-align: left;">Tugas Tambahan</th>
+                    <th style="border: 1pt solid black; width: 35pt; padding: 3pt; text-align: center;">Jam</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${formData.daftarGuru.map((guru: any, index: number) => `
+                    <tr>
+                      <td style="border: 1pt solid black; padding: 3pt; text-align: center; vertical-align: top;">${index + 1}</td>
+                      <td style="border: 1pt solid black; padding: 3pt; vertical-align: top;">
+                        <div style="font-weight: bold;">${guru.nama || '-'}</div>
+                        <div style="font-size: 8pt;">${guru.nip || '-'}</div>
+                      </td>
+                      <td style="border: 1pt solid black; padding: 3pt; text-align: center; vertical-align: top;">${guru.golongan || '-'}</td>
+                      <td style="border: 1pt solid black; padding: 3pt; vertical-align: top;">${guru.jabatan || '-'}</td>
+                      <td style="border: 1pt solid black; padding: 3pt; vertical-align: top;">${guru.tugasMengajar || '-'}</td>
+                      <td style="border: 1pt solid black; padding: 3pt; text-align: center; vertical-align: top;">${guru.jmlJam || '-'}</td>
+                      <td style="border: 1pt solid black; padding: 3pt; vertical-align: top;">${guru.tugasTambahan || '-'}</td>
+                      <td style="border: 1pt solid black; padding: 3pt; text-align: center; vertical-align: top;">${guru.jmlJamTambahan || '-'}</td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            ` : `
+              ${formData.isiSurat.split('\n').map(p => p.trim() ? `<p style="margin-top: 0; margin-bottom: 8pt; line-height: 1.5;">${p}</p>` : `<p style="margin: 0; line-height: 1.5;">&nbsp;</p>`).join('')}
+            `}
           </div>
 
           ${formData.penutup ? `<div class="mb-12 text-justify">` + formData.penutup.split('\n').map(p => p.trim() ? `<p style="margin-top: 0; margin-bottom: 8pt; line-height: 1.5;">${p}</p>` : `<p style="margin: 0; line-height: 1.5;">&nbsp;</p>`).join('') + `</div>` : ''}
@@ -832,18 +1019,23 @@ export default function App() {
               <thead>
                 <tr style="background-color: #f1f5f9;">
                   <th class="border text-center" style="width: 30pt; padding: 5pt;">No</th>
-                  <th class="border" style="text-align: left; padding: 5pt;">Nama Lengkap</th>
-                  <th class="border" style="text-align: left; padding: 5pt;">NIP / No. Identitas</th>
-                  <th class="border" style="text-align: left; padding: 5pt;">Jabatan / Peran</th>
+                  <th class="border" style="text-align: left; padding: 5pt;">Nama Lengkap / NIP</th>
+                  <th class="border" style="text-align: left; padding: 5pt;">Pangkat / Gol</th>
+                  <th class="border" style="text-align: left; padding: 5pt;">Jabatan</th>
+                  <th class="border" style="text-align: left; padding: 5pt;">Tugas / Peran</th>
                 </tr>
               </thead>
               <tbody>
                 ${formData.daftarGuru.map((guru, index) => `
                   <tr>
-                    <td class="border text-center" style="padding: 5pt;">${index + 1}</td>
-                    <td class="border" style="padding: 5pt;">${guru.nama || '-'}</td>
-                    <td class="border" style="padding: 5pt;">${guru.nip || '-'}</td>
-                    <td class="border" style="padding: 5pt;">${guru.jabatan || '-'}</td>
+                    <td class="border text-center" style="padding: 5pt; vertical-align: top;">${index + 1}</td>
+                    <td class="border" style="padding: 5pt; vertical-align: top;">
+                      <div class="font-bold">${guru.nama || '-'}</div>
+                      <div class="text-[9pt]">${guru.nip || '-'}</div>
+                    </td>
+                    <td class="border" style="padding: 5pt; vertical-align: top;">${guru.golongan || '-'}</td>
+                    <td class="border" style="padding: 5pt; vertical-align: top;">${guru.jabatan || '-'}</td>
+                    <td class="border" style="padding: 5pt; vertical-align: top;">${guru.tugas || '-'}</td>
                   </tr>
                 `).join('')}
               </tbody>
@@ -886,13 +1078,37 @@ export default function App() {
 
   const isStandard = ['Surat Undangan', 'Surat Pemberitahuan', 'Surat Permohonan', 'Surat Peminjaman'].includes(formData.jenisSurat);
   const isTugas = formData.jenisSurat === 'Surat Tugas';
+  const isTugasTanpaTabel = formData.jenisSurat === 'Surat Tugas (Tanpa Tabel)';
   const isSK = formData.jenisSurat === 'Surat Keputusan';
+  const isSKPBM = formData.jenisSurat === 'SK Pembagian Tugas (SKPBM)';
   const isEdaran = formData.jenisSurat === 'Surat Edaran';
+  const isKeterangan = formData.jenisSurat === 'Surat Keterangan';
+
+  if (showLanding && !isAuthorized) {
+    return (
+      <LandingPage 
+        onStart={() => setShowLanding(false)} 
+        onLogin={() => setShowLanding(false)} 
+      />
+    );
+  }
 
   if (!isAuthorized) {
     return (
-      <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4 font-sans">
-        <div className="max-w-md w-full bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
+      <div className="min-h-screen bg-slate-100 flex flex-col items-center justify-center p-4 font-sans relative overflow-hidden">
+        {/* Background Decors */}
+        <div className="absolute top-0 left-0 w-full h-full -z-10 bg-gradient-to-br from-blue-50 to-indigo-50"></div>
+        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-blue-400/10 rounded-full blur-3xl -z-10"></div>
+        <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-indigo-400/10 rounded-full blur-3xl -z-10"></div>
+
+        <button 
+          onClick={() => setShowLanding(true)}
+          className="absolute top-6 left-6 flex items-center gap-2 text-slate-500 hover:text-blue-600 font-medium transition-colors bg-white px-4 py-2 rounded-full shadow-sm z-20"
+        >
+          <ArrowRight className="w-4 h-4 rotate-180" /> Kembali ke Awal
+        </button>
+
+        <div className="max-w-md w-full bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden relative z-10">
           <div className="bg-blue-800 p-8 text-center text-white">
             <div className="inline-flex items-center justify-center w-16 h-16 bg-blue-700 rounded-full mb-4 shadow-inner">
               <Lock className="w-8 h-8 text-blue-100" />
@@ -913,12 +1129,24 @@ export default function App() {
                   <Key className="h-5 w-5 text-slate-400" />
                 </div>
                 <input
-                  type="password"
+                  type={showPassword ? "text" : "password"}
                   value={accessKey}
                   onChange={(e) => setAccessKey(e.target.value)}
                   placeholder="Masukkan Kunci Akses..."
-                  className={`block w-full pl-10 pr-3 py-3 border rounded-xl leading-5 bg-slate-50 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all ${loginError ? 'border-red-500 animate-shake' : 'border-slate-200'}`}
+                  className={`block w-full pl-10 pr-10 py-3 border rounded-xl leading-5 bg-slate-50 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all ${loginError ? 'border-red-500 animate-shake' : 'border-slate-200'}`}
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600 transition-colors"
+                  aria-label={showPassword ? "Sembunyikan Kata Sandi" : "Tampilkan Kata Sandi"}
+                >
+                  {showPassword ? (
+                    <EyeOff className="h-5 w-5" />
+                  ) : (
+                    <Eye className="h-5 w-5" />
+                  )}
+                </button>
               </div>
 
               {loginError && (
@@ -932,6 +1160,21 @@ export default function App() {
                 Buka Akses Sekarang
               </button>
             </div>
+
+            <div className="relative">
+              <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 border-t border-slate-100"></div>
+              <div className="relative flex justify-center">
+                <span className="bg-white px-3 text-xs text-slate-400 uppercase tracking-widest">Atau</span>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleDemoLogin}
+              className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl border-2 border-slate-100 text-slate-600 font-bold hover:bg-slate-50 hover:border-blue-100 hover:text-blue-600 transition-all"
+            >
+              Coba Akun Demo
+            </button>
 
             <div className="pt-4 border-t border-slate-100 text-center">
               <p className="text-[10pt] text-slate-400">
@@ -1005,13 +1248,19 @@ export default function App() {
           </div>
         </div>
         <div className="flex items-center gap-4 text-sm font-medium">
+          {isDemo && (
+            <div className="flex items-center gap-1.5 px-3 py-1 bg-amber-500/20 text-amber-300 rounded-full border border-amber-500/30">
+              <ShieldCheck className="w-3.5 h-3.5" />
+              <span className="text-[10px] font-bold uppercase tracking-tight">Akun Demo</span>
+            </div>
+          )}
           <button 
             onClick={handleLogout}
             className="flex items-center gap-2 px-3 py-1 bg-white/10 hover:bg-white/20 rounded-full border border-white/20 transition-colors"
             title="Keluar / Kunci Aplikasi"
           >
-            <ShieldCheck className="w-3.5 h-3.5 text-blue-300" />
-            <span className="text-xs">Berlisensi</span>
+            <LogOut className="w-3.5 h-3.5 text-blue-300" />
+            <span className="text-xs">Keluar</span>
           </button>
           <div className="flex items-center gap-1.5 px-3 py-1 bg-black/20 rounded-full border border-white/10" title={dbStatus === 'supabase' ? 'Terhubung ke Supabase' : dbError || 'Data disimpan lokal'}>
             <Database className={`w-3.5 h-3.5 ${dbStatus === 'supabase' ? 'text-emerald-400' : dbStatus === 'syncing' ? 'text-amber-400 animate-pulse' : dbStatus === 'error' ? 'text-red-400' : 'text-slate-400'}`} />
@@ -1030,6 +1279,16 @@ export default function App() {
             <SidebarButton active={activeTab === 'riwayat'} onClick={() => setActiveTab('riwayat')} icon={<History className="w-5 h-5" />} label="Riwayat Surat" />
             <SidebarButton active={activeTab === 'pengaturan'} onClick={() => setActiveTab('pengaturan')} icon={<Settings className="w-5 h-5" />} label="Pengaturan KOP" />
           </nav>
+          
+          <div className="p-4 border-t border-slate-100">
+            <button 
+              onClick={handleLogout}
+              className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left transition-colors font-medium text-red-600 hover:bg-red-50"
+            >
+              <LogOut className="w-5 h-5" />
+              Keluar
+            </button>
+          </div>
         </aside>
 
         <main className="flex-1 overflow-y-auto relative bg-slate-100 no-print">
@@ -1078,7 +1337,7 @@ export default function App() {
                     </InputWrapper>
                   )}
 
-                  {!isTugas && !isSK && (
+                  {!isTugas && !isTugasTanpaTabel && !isSK && !isKeterangan && (
                     <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 shadow-inner">
                       <h3 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2"><MapPin className="w-4 h-4"/> Tujuan Surat</h3>
                       <div className="space-y-3">
@@ -1131,37 +1390,108 @@ export default function App() {
                       </label>
                     </div>
 
-                    {formData.hasLampiran && (
+                    {(formData.hasLampiran || isTugas || isSKPBM) && (
                       <div className="space-y-4">
                         <div className="space-y-2">
                           {formData.daftarGuru.map((guru, index) => (
                             <div key={guru.id} className="p-3 bg-white border border-slate-200 rounded-lg shadow-sm relative group">
                               <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                                <InputWrapper label={`Nama Guru ${index + 1}`}>
+                                <InputWrapper label={`Nama Personel ${index + 1}`}>
                                   <input 
                                     value={guru.nama} 
                                     onChange={(e) => updateGuru(guru.id, 'nama', e.target.value)} 
                                     className="form-input" 
-                                    placeholder="Nama Lengkap"
+                                    placeholder="Contoh: Nama Lengkap, Gelar"
                                   />
                                 </InputWrapper>
-                                <InputWrapper label="NIP">
+                                <InputWrapper label="NIP / Identitas">
                                   <input 
                                     value={guru.nip} 
                                     onChange={(e) => updateGuru(guru.id, 'nip', e.target.value)} 
                                     className="form-input" 
-                                    placeholder="NIP / No. Pegawai"
+                                    placeholder="Contoh: 19xxxxxxxx xxxxxx x xxx"
                                   />
                                 </InputWrapper>
                               </div>
-                              <InputWrapper label="Jabatan / Peran">
-                                <input 
-                                  value={guru.jabatan} 
-                                  onChange={(e) => updateGuru(guru.id, 'jabatan', e.target.value)} 
-                                  className="form-input" 
-                                  placeholder="Contoh: Guru Kelas, Panitia, dsb."
-                                />
-                              </InputWrapper>
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mt-2">
+                                <InputWrapper label="Pangkat/Gol/Ruang">
+                                  <input 
+                                    value={guru.golongan} 
+                                    onChange={(e) => updateGuru(guru.id, 'golongan', e.target.value)} 
+                                    className="form-input" 
+                                    placeholder="Contoh: Pembina, IV/a"
+                                  />
+                                </InputWrapper>
+                                <InputWrapper label="Jabatan">
+                                  <input 
+                                    value={guru.jabatan} 
+                                    onChange={(e) => updateGuru(guru.id, 'jabatan', e.target.value)} 
+                                    className="form-input" 
+                                    placeholder="Contoh: Guru Madya, Staf TU"
+                                  />
+                                </InputWrapper>
+                              </div>
+                              
+                              {!isSKPBM ? (
+                                <InputWrapper label="Tugas / Peran Spesifik" className="mt-2">
+                                  <input 
+                                    value={guru.tugas} 
+                                    onChange={(e) => updateGuru(guru.id, 'tugas', e.target.value)} 
+                                    className="form-input" 
+                                    placeholder="Contoh: Panitia PPS, Narasumber, dsb."
+                                  />
+                                </InputWrapper>
+                              ) : (
+                                <div className="space-y-2 mt-4 pt-4 border-t border-slate-200">
+                                  <h4 className="text-xs font-bold uppercase text-slate-500 tracking-wider">Detail Pembagian Tugas (SKPBM)</h4>
+                                  <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
+                                    <div className="md:col-span-3">
+                                      <InputWrapper label="Tugas Mengajar / Mapel">
+                                        <input 
+                                          value={guru.tugasMengajar} 
+                                          onChange={(e) => updateGuru(guru.id, 'tugasMengajar', e.target.value)} 
+                                          className="form-input text-sm" 
+                                          placeholder="Mapel - Kelas"
+                                        />
+                                      </InputWrapper>
+                                    </div>
+                                    <div>
+                                      <InputWrapper label="Jam">
+                                        <input 
+                                          type="text"
+                                          value={guru.jmlJam} 
+                                          onChange={(e) => updateGuru(guru.id, 'jmlJam', e.target.value)} 
+                                          className="form-input text-sm" 
+                                          placeholder="0"
+                                        />
+                                      </InputWrapper>
+                                    </div>
+                                  </div>
+                                  <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
+                                    <div className="md:col-span-3">
+                                      <InputWrapper label="Tugas Tambahan">
+                                        <input 
+                                          value={guru.tugasTambahan} 
+                                          onChange={(e) => updateGuru(guru.id, 'tugasTambahan', e.target.value)} 
+                                          className="form-input text-sm" 
+                                          placeholder="Contoh: Wali Kelas"
+                                        />
+                                      </InputWrapper>
+                                    </div>
+                                    <div>
+                                      <InputWrapper label="Jam">
+                                        <input 
+                                          type="text"
+                                          value={guru.jmlJamTambahan} 
+                                          onChange={(e) => updateGuru(guru.id, 'jmlJamTambahan', e.target.value)} 
+                                          className="form-input text-sm" 
+                                          placeholder="0"
+                                        />
+                                      </InputWrapper>
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
                               {formData.daftarGuru.length > 1 && (
                                 <button 
                                   onClick={() => removeGuru(guru.id)} 
@@ -1285,10 +1615,16 @@ export default function App() {
                         </>
                       )}
 
-                      {isTugas && (
+                      {(isTugas || isTugasTanpaTabel || isSKPBM) && (
                         <div className="mb-8 text-center pt-2">
-                          <div className="font-bold text-[14pt] underline uppercase tracking-wide">SURAT TUGAS</div>
+                          <div className="font-bold text-[14pt] underline uppercase tracking-wide">{isSKPBM ? 'SURAT KEPUTUSAN' : 'SURAT TUGAS'}</div>
                           <div className="text-[11pt]">Nomor: {formData.nomorSurat || '-'}</div>
+                          {isSKPBM && (
+                            <div className="mt-4">
+                              <div className="font-bold uppercase underline">TENTANG</div>
+                              <div className="font-bold uppercase">{formData.perihal || 'PEMBAGIAN TUGAS GURU'}</div>
+                            </div>
+                          )}
                           <div className="text-right mt-2 text-[11pt]">{formData.tempatSurat}, {formData.tanggalSurat}</div>
                         </div>
                       )}
@@ -1302,9 +1638,69 @@ export default function App() {
                         </div>
                       )}
 
+                      {isKeterangan && (
+                        <div className="mb-8 text-center pt-2">
+                          <div className="font-bold text-[14pt] underline uppercase tracking-wide">SURAT KETERANGAN</div>
+                          <div className="text-[11pt]">Nomor: {formData.nomorSurat || '-'}</div>
+                        </div>
+                      )}
+
                       <div className="mb-6 text-justify text-[11pt]">
                         {formData.salamPembuka && !isSK && <div className="mb-4">{formData.salamPembuka}</div>}
-                        <div className="whitespace-pre-wrap leading-relaxed">{formData.isiSurat}</div>
+                        
+                        {(isTugas || isSKPBM) ? (
+                          <div className="mb-4">
+                            <div className="mb-4 whitespace-pre-wrap leading-relaxed">{formData.isiSurat}</div>
+                            {isSKPBM && <div className="text-center font-bold mb-4 underline uppercase">PEMBAGIAN TUGAS GURU TAHUN PELAJARAN</div>}
+                            <div className="overflow-x-auto mb-4">
+                              <table className={`w-full border-collapse border border-slate-950 ${isSKPBM ? 'text-[8pt]' : 'text-[10pt]'}`}>
+                                <thead>
+                                  <tr className="bg-slate-50">
+                                    <th className="border border-slate-950 p-1 text-center w-8">No.</th>
+                                    <th className="border border-slate-950 p-1 text-left">Nama Guru / NIP</th>
+                                    <th className="border border-slate-950 p-1 text-left">Gol</th>
+                                    <th className="border border-slate-950 p-1 text-left">Jabatan</th>
+                                    {isSKPBM ? (
+                                      <>
+                                        <th className="border border-slate-950 p-1 text-left">Tugas Mengajar</th>
+                                        <th className="border border-slate-950 p-1 text-center">Jam</th>
+                                        <th className="border border-slate-950 p-1 text-left">Tugas Tambahan</th>
+                                        <th className="border border-slate-950 p-1 text-center">Jam</th>
+                                      </>
+                                    ) : (
+                                      <th className="border border-slate-950 p-1 text-left">Tugas</th>
+                                    )}
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {formData.daftarGuru.map((guru, index) => (
+                                    <tr key={guru.id}>
+                                      <td className="border border-slate-950 p-1 text-center align-top">{index + 1}.</td>
+                                      <td className="border border-slate-950 p-1 align-top leading-tight">
+                                        <div className="font-bold">{guru.nama || '...'}</div>
+                                        <div className="text-[7pt] text-slate-500">{guru.nip || '-'}</div>
+                                      </td>
+                                      <td className="border border-slate-950 p-1 align-top text-center">{guru.golongan || '-'}</td>
+                                      <td className="border border-slate-950 p-1 align-top">{guru.jabatan || '-'}</td>
+                                      {isSKPBM ? (
+                                        <>
+                                          <td className="border border-slate-950 p-1 align-top">{guru.tugasMengajar || '-'}</td>
+                                          <td className="border border-slate-950 p-1 align-top text-center">{guru.jmlJam || '-'}</td>
+                                          <td className="border border-slate-950 p-1 align-top">{guru.tugasTambahan || '-'}</td>
+                                          <td className="border border-slate-950 p-1 align-top text-center">{guru.jmlJamTambahan || '-'}</td>
+                                        </>
+                                      ) : (
+                                        <td className="border border-slate-950 p-1 align-top">{guru.tugas || '-'}</td>
+                                      )}
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="whitespace-pre-wrap leading-relaxed">{formData.isiSurat}</div>
+                        )}
                       </div>
 
                       {formData.penutup && <div className="mb-12 text-justify text-[11pt] leading-relaxed">{formData.penutup}</div>}
@@ -1502,8 +1898,115 @@ export default function App() {
                     </div>
                   </div>
                 </div>
-                <button onClick={() => { alert('Tersimpan!'); setActiveTab('buat'); }} className="w-full py-3 bg-blue-600 text-white rounded-lg font-bold shadow-lg hover:bg-blue-700 transition-colors">Simpan Perubahan</button>
+                <button onClick={() => { 
+                  if (customApiKey) safeSetStorage('tu_custom_api_key', customApiKey);
+                  else localStorage.removeItem('tu_custom_api_key');
+                  alert('Pengaturan tersimpan!'); 
+                  setActiveTab('buat'); 
+                }} className="w-full py-3 bg-blue-600 text-white rounded-lg font-bold shadow-lg hover:bg-blue-700 transition-colors">Simpan Perubahan</button>
               </div>
+
+              {/* API Key Settings */}
+              {!isDemo && (
+                <div className="bg-white rounded-xl shadow p-6 space-y-4 mt-6">
+                  <h2 className="text-xl font-bold flex items-center gap-2"><Key className="text-amber-500"/> Pengaturan API Key (Opsional)</h2>
+                  <p className="text-xs text-slate-500 leading-relaxed">
+                    Jika fitur AI tidak berfungsi karena limit kuota, Anda dapat menggunakan API Key Google Gemini Anda sendiri. API Key disimpan di browser Anda secara lokal.
+                  </p>
+                  <InputWrapper label="Custom Gemini API Key">
+                    <div className="relative">
+                      <input 
+                        type={showPassword ? "text" : "password"}
+                        value={customApiKey}
+                        onChange={(e) => {
+                          setCustomApiKey(e.target.value);
+                          setApiCheckStatus('idle'); // reset connection state on change
+                        }}
+                        placeholder="Masukkan API Key (AIza...)"
+                        className="form-input pr-10"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600"
+                      >
+                        {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
+                  </InputWrapper>
+
+                  <div className="flex flex-wrap gap-3 items-center">
+                    <button
+                      type="button"
+                      onClick={checkApiKeyConnection}
+                      disabled={checkingApiKey}
+                      className={`flex items-center justify-center gap-2 px-4 py-2.5 text-xs font-bold rounded-lg border transition-all ${
+                        checkingApiKey 
+                          ? 'bg-slate-50 border-slate-200 text-slate-400 cursor-not-allowed'
+                          : 'bg-amber-50 hover:bg-amber-100 border-amber-200 text-amber-700 hover:text-amber-800 shadow-sm'
+                      }`}
+                    >
+                      {checkingApiKey ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-600" />
+                          Mengecek...
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                          Cek Koneksi API Key
+                        </>
+                      )}
+                    </button>
+                    
+                    {customApiKey && (
+                      <button 
+                        type="button" 
+                        onClick={() => {
+                          setCustomApiKey('');
+                          setApiCheckStatus('idle');
+                          setApiCheckMessage('');
+                        }}
+                        className="text-xs text-slate-400 hover:text-red-500 font-medium transition-colors border border-dashed border-slate-200 hover:border-red-200 px-3 py-2 rounded-lg"
+                      >
+                        Hapus API Key
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Status Connection Box */}
+                  {apiCheckStatus !== 'idle' && (
+                    <div className={`p-4 rounded-xl border text-sm flex items-start gap-3 animate-fade-in transition-all ${
+                      apiCheckStatus === 'success' 
+                        ? 'bg-emerald-50 border-emerald-200 text-emerald-800' 
+                        : 'bg-red-50 border-red-200 text-red-800'
+                    }`}>
+                      {apiCheckStatus === 'success' ? (
+                        <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0" />
+                      ) : (
+                        <AlertCircle className="w-5 h-5 text-red-500 shrink-0" />
+                      )}
+                      <div>
+                        <p className="font-bold text-xs uppercase tracking-wide mb-0.5">
+                          {apiCheckStatus === 'success' ? 'Aktif / Connected' : 'Koneksi Gagal'}
+                        </p>
+                        <p className="text-xs leading-relaxed opacity-90">{apiCheckMessage}</p>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="pt-2 border-t border-slate-100">
+                    <a 
+                      href="https://aistudio.google.com/app/apikey" 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="text-xs text-blue-600 hover:underline flex items-center gap-1"
+                    >
+                      Dapatkan API Key Gratis di Google AI Studio <ExternalLink className="w-3 h-3" />
+                    </a>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </main>

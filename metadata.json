@@ -1,6 +1,6 @@
 {
-  "name": "Generator Surat Kedinasan",
-  "description": "Aplikasi pembuat surat dinas sekolah profesional dengan fitur template, riwayat, dan ekspor Word/PDF.",
+  "name": "e-Surat TU",
+  "description": "Solusi Administrasi Sekolah Modern: Generator Surat Dinas, Surat Tugas, dan SK dengan AI & Ekspor Word Profesional.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
