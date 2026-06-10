@@ -1909,7 +1909,10 @@ export default function App() {
               {/* API Key Settings */}
               {!isDemo && (
                 <div className="bg-white rounded-xl shadow p-6 space-y-4 mt-6">
-                  <h2 className="text-xl font-bold flex items-center gap-2"><Key className="text-amber-500"/> Pengaturan API Key (Opsional)</h2>
+                  <h2 className="text-xl font-bold flex items-center gap-2">
+                    <Key className="text-amber-500"/> 
+                    Pengaturan API Key (Opsional)
+                  </h2>
                   <p className="text-xs text-slate-500 leading-relaxed">
                     Jika fitur AI tidak berfungsi karena limit kuota, Anda dapat menggunakan API Key Google Gemini Anda sendiri. API Key disimpan di browser Anda secara lokal.
                   </p>
@@ -1919,8 +1922,18 @@ export default function App() {
                         type={showPassword ? "text" : "password"}
                         value={customApiKey}
                         onChange={(e) => {
-                          setCustomApiKey(e.target.value);
+                          const val = e.target.value.trim();
+                          setCustomApiKey(val);
                           setApiCheckStatus('idle'); // reset connection state on change
+                          
+                          // Auto-save immediately to localStorage
+                          if (val) {
+                            safeSetStorage('tu_custom_api_key', val);
+                          } else {
+                            try {
+                              localStorage.removeItem('tu_custom_api_key');
+                            } catch (ex) {}
+                          }
                         }}
                         placeholder="Masukkan API Key (AIza...)"
                         className="form-input pr-10"
@@ -1966,12 +1979,20 @@ export default function App() {
                           setCustomApiKey('');
                           setApiCheckStatus('idle');
                           setApiCheckMessage('');
+                          try {
+                            localStorage.removeItem('tu_custom_api_key');
+                          } catch (ex) {}
+                          alert('API Key berhasil dihapus dari browser.');
                         }}
                         className="text-xs text-slate-400 hover:text-red-500 font-medium transition-colors border border-dashed border-slate-200 hover:border-red-200 px-3 py-2 rounded-lg"
                       >
                         Hapus API Key
                       </button>
                     )}
+
+                    <span className="text-[10px] text-emerald-600 font-semibold bg-emerald-50 px-2 py-1 rounded-md ml-auto">
+                      ✓ Tersimpan Otomatis secara Lokal
+                    </span>
                   </div>
 
                   {/* Status Connection Box */}
