@@ -103,6 +103,8 @@ export default function App() {
     namaKepsek: 'Nama Kepala Sekolah, Gelar.',
     nipKepsek: '19xxxxxxxx xxxxxx x xxx',
     ttdDigital: '', // base64
+    useQRCodeTtd: false,
+    qrCodeTtdText: '',
     hasLampiran: false,
     daftarGuru: [
       { id: Date.now(), nama: '', nip: '', jabatan: '', golongan: '', tugas: '', tugasMengajar: '', jmlJam: '', tugasTambahan: '', jmlJamTambahan: '' }
@@ -114,6 +116,27 @@ export default function App() {
     const saved = safeGetStorage('tu_history_surat');
     return saved ? JSON.parse(saved) : [];
   });
+
+  const getQRCodeData = (data: any) => {
+    if (data.qrCodeTtdText && data.qrCodeTtdText.trim() !== '') {
+      return data.qrCodeTtdText;
+    }
+    const cleanSchoolName = schoolData.namaInstansi ? schoolData.namaInstansi.replace(/\n/g, ' ') : 'Sekolah';
+    return `VERIFIKASI DOKUMEN DIGITAL (SAH)
+--------------------------------------
+Dokumen ini diterbitkan oleh:
+🏢 ${cleanSchoolName}
+📄 Jenis: ${data.jenisSurat}
+🔢 Nomor: ${data.nomorSurat || '-'}
+🗓️ Tanggal: ${data.tanggalSurat}
+📋 Perihal: ${data.perihal || '-'}
+
+Ditandatangani secara elektronik oleh:
+✍️ Kepala Sekolah: ${data.namaKepsek || '-'}
+🆔 NIP: ${data.nipKepsek || '-'}
+
+Terverifikasi Sistem Administrasi Tata Usaha Berbasis Cloud.`;
+  };
 
   // Load from Supabase on mount if configured
   useEffect(() => {
@@ -963,10 +986,10 @@ export default function App() {
           ${formData.penutup ? `<div class="mb-12 text-justify">` + formData.penutup.split('\n').map(p => p.trim() ? `<p style="margin-top: 0; margin-bottom: 8pt; line-height: 1.5;">${p}</p>` : `<p style="margin: 0; line-height: 1.5;">&nbsp;</p>`).join('') + `</div>` : ''}
 
           <!-- TANDA TANGAN -->
-          <table style="margin-top: 36pt;">
+          <table style="margin-top: 36pt; width: 100%;">
             <tr>
-              <td style="width: 60%;"></td>
-              <td style="width: 40%;">
+              <td style="width: 55%;"></td>
+              <td style="width: 45%;">
                 ${!isStandardLocal ? `
                   <table style="font-size: 10pt; margin-bottom: 6pt;">
                     <tr><td style="width: 80pt;">Ditetapkan di</td><td style="width: 10pt;">:</td><td>${formData.tempatSurat}</td></tr>
@@ -974,10 +997,16 @@ export default function App() {
                   </table>
                 ` : ''}
                 <div class="mb-1">Kepala Sekolah,</div>
-                <div style="height: 80pt; position: relative;">
-                  ${formData.ttdDigital ? `<img src="${formData.ttdDigital}" width="120" height="80" style="max-height: 80pt;">` : ''}
+                <div style="margin-top: 4pt; margin-bottom: 4pt;">
+                  <table style="border: none;">
+                    <tr>
+                      ${formData.ttdDigital ? `<td style="vertical-align: middle; padding-right: 12px;"><img src="${formData.ttdDigital}" width="120" height="80" style="max-height: 80pt; object-fit: contain;"></td>` : ''}
+                      ${formData.useQRCodeTtd ? `<td style="vertical-align: middle;"><img src="https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(getQRCodeData(formData))}" width="75" height="75" style="max-height: 75pt; border: 1px solid #ddd; padding: 2px;"></td>` : ''}
+                      ${(!formData.ttdDigital && !formData.useQRCodeTtd) ? `<td style="height: 80pt;">&nbsp;</td>` : ''}
+                    </tr>
+                  </table>
                 </div>
-                <div class="font-bold underline uppercase">${formData.namaKepsek}</div>
+                <div class="font-bold underline uppercase" style="margin-top: 6pt;">${formData.namaKepsek}</div>
                 <div>NIP. ${formData.nipKepsek}</div>
               </td>
             </tr>
@@ -1037,15 +1066,21 @@ export default function App() {
               </tbody>
             </table>
 
-            <table style="margin-top: 36pt;">
+            <table style="margin-top: 36pt; width: 100%;">
               <tr>
-                <td style="width: 60%;"></td>
-                <td style="width: 40%;">
+                <td style="width: 55%;"></td>
+                <td style="width: 45%;">
                   <div class="mb-1">Kepala Sekolah,</div>
-                  <div style="height: 60pt;">
-                    ${formData.ttdDigital ? `<img src="${formData.ttdDigital}" width="100" height="60" style="max-height: 60pt;">` : ''}
+                  <div style="margin-top: 4pt; margin-bottom: 4pt;">
+                    <table style="border: none;">
+                      <tr>
+                        ${formData.ttdDigital ? `<td style="vertical-align: middle; padding-right: 12px;"><img src="${formData.ttdDigital}" width="100" height="60" style="max-height: 60pt; object-fit: contain;"></td>` : ''}
+                        ${formData.useQRCodeTtd ? `<td style="vertical-align: middle;"><img src="https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(getQRCodeData(formData))}" width="60" height="60" style="max-height: 60pt; border: 1px solid #ddd; padding: 2px;"></td>` : ''}
+                        ${(!formData.ttdDigital && !formData.useQRCodeTtd) ? `<td style="height: 60pt;">&nbsp;</td>` : ''}
+                      </tr>
+                    </table>
                   </div>
-                  <div class="font-bold underline uppercase">${formData.namaKepsek}</div>
+                  <div class="font-bold underline uppercase" style="margin-top: 6pt;">${formData.namaKepsek}</div>
                   <div>NIP. ${formData.nipKepsek}</div>
                 </td>
               </tr>
@@ -1547,6 +1582,38 @@ export default function App() {
                         </button>
                       )}
                     </div>
+
+                    <div className="border-t border-slate-200 pt-3 mt-4 space-y-3">
+                      <label className="flex items-start gap-2 cursor-pointer">
+                        <input 
+                          type="checkbox" 
+                          checked={formData.useQRCodeTtd}
+                          onChange={(e) => setFormData(p => ({ ...p, useQRCodeTtd: e.target.checked }))}
+                          className="mt-1 rounded border-slate-300 text-blue-600 focus:ring-blue-500 h-4 w-4"
+                        />
+                        <div>
+                          <span className="text-xs font-bold text-slate-700 block">Sertakan QR Code Tanda Tangan Digital</span>
+                          <span className="text-[10px] text-slate-500 block leading-tight">Menambahkan QR Code verifikasi dokumen secara resmi di area tanda tangan.</span>
+                        </div>
+                      </label>
+                      
+                      {formData.useQRCodeTtd && (
+                        <div className="bg-blue-50/50 p-2.5 rounded-md border border-blue-100/80 space-y-2 mt-2">
+                          <label className="block text-[11px] font-bold text-slate-600">Isi / Teks Verifikasi QR Code (Opsional)</label>
+                          <textarea
+                            name="qrCodeTtdText"
+                            value={formData.qrCodeTtdText}
+                            onChange={handleInputChange}
+                            placeholder="Biarkan kosong untuk verifikasi otomatis dokumen secara dinamis..."
+                            className="w-full text-xs p-1.5 border border-slate-200 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500 bg-white"
+                            rows={3}
+                          />
+                          <p className="text-[9px] text-slate-400 leading-normal">
+                            Secara default, QR Code akan otomatis memuat nama sekolah, nomor surat, tanggal surat, perihal, nama kepala sekolah, dan NIP untuk mengonfirmasi keaslian dokumen secara digital.
+                          </p>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1694,8 +1761,22 @@ export default function App() {
                             </table>
                           )}
                           <div className="mb-1">Kepala Sekolah,</div>
-                          <div className="h-24 relative my-2">
-                            {formData.ttdDigital && <img src={formData.ttdDigital} className="h-full absolute left-0" style={{ mixBlendMode: 'multiply' }} />}
+                          <div className="h-24 my-2 flex items-center gap-4">
+                            {formData.ttdDigital && (
+                              <img src={formData.ttdDigital} className="h-full object-contain" style={{ mixBlendMode: 'multiply' }} />
+                            )}
+                            {formData.useQRCodeTtd && (
+                              <div className="h-20 w-20 p-1 border border-slate-300 bg-white rounded flex items-center justify-center relative" title="Tanda Tangan Digital QR Code Terverifikasi">
+                                <img 
+                                  src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(getQRCodeData(formData))}`} 
+                                  alt="QR Code TTD" 
+                                  className="h-full w-full object-contain"
+                                />
+                              </div>
+                            )}
+                            {!formData.ttdDigital && !formData.useQRCodeTtd && (
+                              <div className="h-20" />
+                            )}
                           </div>
                           <div className="font-bold underline uppercase">{formData.namaKepsek}</div>
                           <div>NIP. {formData.nipKepsek}</div>
@@ -1769,8 +1850,22 @@ export default function App() {
                         <div className="flex justify-end mt-12">
                           <div className="w-[300px] text-[11pt]">
                             <div className="mb-1">Kepala Sekolah,</div>
-                            <div className="h-20 relative my-2">
-                              {formData.ttdDigital && <img src={formData.ttdDigital} className="h-full absolute left-0" style={{ mixBlendMode: 'multiply' }} />}
+                            <div className="h-20 my-2 flex items-center gap-4">
+                              {formData.ttdDigital && (
+                                <img src={formData.ttdDigital} className="h-full object-contain" style={{ mixBlendMode: 'multiply' }} />
+                              )}
+                              {formData.useQRCodeTtd && (
+                                <div className="h-16 w-16 p-1 border border-slate-300 bg-white rounded flex items-center justify-center relative" title="Tanda Tangan Digital QR Code Terverifikasi">
+                                  <img 
+                                    src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(getQRCodeData(formData))}`} 
+                                    alt="QR Code TTD" 
+                                    className="h-full w-full object-contain"
+                                  />
+                                </div>
+                              )}
+                              {!formData.ttdDigital && !formData.useQRCodeTtd && (
+                                <div className="h-16" />
+                              )}
                             </div>
                             <div className="font-bold underline uppercase">{formData.namaKepsek}</div>
                             <div>NIP. {formData.nipKepsek}</div>
