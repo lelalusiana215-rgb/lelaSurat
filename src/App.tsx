@@ -533,8 +533,8 @@ Terverifikasi Sistem Administrasi Tata Usaha Berbasis Cloud.`;
   };
 
   const generateIsiSuratAI = async () => {
-    if (isDemo) {
-      alert("Mode Demo: Fitur AI tidak tersedia di akun demo. Silakan aktifkan lisensi penuh.");
+    if (isDemo && !customApiKey) {
+      alert("Mode Demo: Fitur AI menggunakan server utama tidak tersedia di akun demo. Namun, Anda dapat memasukkan Custom Gemini API Key gratis milik Anda sendiri di tab \"Pengaturan\" agar fitur AI ini tetap aktif!");
       return;
     }
     if (!formData.perihal) {
@@ -561,8 +561,8 @@ Terverifikasi Sistem Administrasi Tata Usaha Berbasis Cloud.`;
         const data = await response.json();
 
         if (!response.ok) {
-          if (response.status === 429) {
-            alert("Gagal: Kuota harian Gemini API telah habis atau terlalu banyak permintaan.");
+          if (response.status === 429 || (data.error && (data.error.includes("limit") || data.error.includes("Kuota") || data.error.includes("quota") || data.error.includes("habis")))) {
+            alert("Gagal: Kuota harian Gemini API di server utama telah habis atau limit tercapai.\n\nSolusi: Anda dapat memperoleh API Key Google Gemini GRATIS di Google AI Studio (https://aistudio.google.com/app/apikey) dan memasukkannya di tab \"Pengaturan\" -> \"Pengaturan API Key\" agar dapat kembali menggenerate surat tanpa batasan kuota server.");
           } else {
             alert(data.error || "Gagal menyusun surat otomatis.");
           }
@@ -2002,130 +2002,132 @@ Terverifikasi Sistem Administrasi Tata Usaha Berbasis Cloud.`;
               </div>
 
               {/* API Key Settings */}
-              {!isDemo && (
-                <div className="bg-white rounded-xl shadow p-6 space-y-4 mt-6">
-                  <h2 className="text-xl font-bold flex items-center gap-2">
-                    <Key className="text-amber-500"/> 
-                    Pengaturan API Key (Opsional)
-                  </h2>
-                  <p className="text-xs text-slate-500 leading-relaxed">
-                    Jika fitur AI tidak berfungsi karena limit kuota, Anda dapat menggunakan API Key Google Gemini Anda sendiri. API Key disimpan di browser Anda secara lokal.
-                  </p>
-                  <InputWrapper label="Custom Gemini API Key">
-                    <div className="relative">
-                      <input 
-                        type={showPassword ? "text" : "password"}
-                        value={customApiKey}
-                        onChange={(e) => {
-                          const val = e.target.value.trim();
-                          setCustomApiKey(val);
-                          setApiCheckStatus('idle'); // reset connection state on change
-                          
-                          // Auto-save immediately to localStorage
-                          if (val) {
-                            safeSetStorage('tu_custom_api_key', val);
-                          } else {
-                            try {
-                              localStorage.removeItem('tu_custom_api_key');
-                            } catch (ex) {}
-                          }
-                        }}
-                        placeholder="Masukkan API Key (AIza...)"
-                        className="form-input pr-10"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowPassword(!showPassword)}
-                        className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600"
-                      >
-                        {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                      </button>
-                    </div>
-                  </InputWrapper>
-
-                  <div className="flex flex-wrap gap-3 items-center">
-                    <button
-                      type="button"
-                      onClick={checkApiKeyConnection}
-                      disabled={checkingApiKey}
-                      className={`flex items-center justify-center gap-2 px-4 py-2.5 text-xs font-bold rounded-lg border transition-all ${
-                        checkingApiKey 
-                          ? 'bg-slate-50 border-slate-200 text-slate-400 cursor-not-allowed'
-                          : 'bg-amber-50 hover:bg-amber-100 border-amber-200 text-amber-700 hover:text-amber-800 shadow-sm'
-                      }`}
-                    >
-                      {checkingApiKey ? (
-                        <>
-                          <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-600" />
-                          Mengecek...
-                        </>
-                      ) : (
-                        <>
-                          <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-                          Cek Koneksi API Key
-                        </>
-                      )}
-                    </button>
-                    
-                    {customApiKey && (
-                      <button 
-                        type="button" 
-                        onClick={() => {
-                          setCustomApiKey('');
-                          setApiCheckStatus('idle');
-                          setApiCheckMessage('');
+              <div className="bg-white rounded-xl shadow p-6 space-y-4 mt-6">
+                <h2 className="text-xl font-bold flex items-center gap-2">
+                  <Key className="text-amber-500"/> 
+                  Pengaturan API Key (Opsional)
+                </h2>
+                {isDemo && (
+                  <div className="p-3.5 bg-amber-50 border border-amber-200 text-amber-800 rounded-lg text-xs leading-relaxed">
+                    <strong>Informasi Mode Demo:</strong> Fitur pembuatan surat otomatis menggunakan server utama dinonaktifkan untuk akun demo demi menjaga keamanan kuota bersama. Namun, Anda dapat memasukkan <strong>API Key Gemini pribadi (GRATIS)</strong> Anda di bawah ini untuk mengaktifkan dan mencoba fitur AI secara penuh tanpa batasan!
+                  </div>
+                )}
+                <p className="text-xs text-slate-500 leading-relaxed">
+                  Jika fitur AI tidak berfungsi karena limit kuota server utama habis, Anda dapat menggunakan API Key Google Gemini Anda sendiri. API Key disimpan dengan aman di browser Anda secara lokal.
+                </p>
+                <InputWrapper label="Custom Gemini API Key">
+                  <div className="relative">
+                    <input 
+                      type={showPassword ? "text" : "password"}
+                      value={customApiKey}
+                      onChange={(e) => {
+                        const val = e.target.value.trim();
+                        setCustomApiKey(val);
+                        setApiCheckStatus('idle'); // reset connection state on change
+                        
+                        // Auto-save immediately to localStorage
+                        if (val) {
+                          safeSetStorage('tu_custom_api_key', val);
+                        } else {
                           try {
                             localStorage.removeItem('tu_custom_api_key');
                           } catch (ex) {}
-                          alert('API Key berhasil dihapus dari browser.');
-                        }}
-                        className="text-xs text-slate-400 hover:text-red-500 font-medium transition-colors border border-dashed border-slate-200 hover:border-red-200 px-3 py-2 rounded-lg"
-                      >
-                        Hapus API Key
-                      </button>
-                    )}
-
-                    <span className="text-[10px] text-emerald-600 font-semibold bg-emerald-50 px-2 py-1 rounded-md ml-auto">
-                      ✓ Tersimpan Otomatis secara Lokal
-                    </span>
+                        }
+                      }}
+                      placeholder="Masukkan API Key (AIza...)"
+                      className="form-input pr-10"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600"
+                    >
+                      {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
                   </div>
+                </InputWrapper>
 
-                  {/* Status Connection Box */}
-                  {apiCheckStatus !== 'idle' && (
-                    <div className={`p-4 rounded-xl border text-sm flex items-start gap-3 animate-fade-in transition-all ${
-                      apiCheckStatus === 'success' 
-                        ? 'bg-emerald-50 border-emerald-200 text-emerald-800' 
-                        : 'bg-red-50 border-red-200 text-red-800'
-                    }`}>
-                      {apiCheckStatus === 'success' ? (
-                        <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0" />
-                      ) : (
-                        <AlertCircle className="w-5 h-5 text-red-500 shrink-0" />
-                      )}
-                      <div>
-                        <p className="font-bold text-xs uppercase tracking-wide mb-0.5">
-                          {apiCheckStatus === 'success' ? 'Aktif / Connected' : 'Koneksi Gagal'}
-                        </p>
-                        <p className="text-xs leading-relaxed opacity-90">{apiCheckMessage}</p>
-                      </div>
-                    </div>
+                <div className="flex flex-wrap gap-3 items-center">
+                  <button
+                    type="button"
+                    onClick={checkApiKeyConnection}
+                    disabled={checkingApiKey}
+                    className={`flex items-center justify-center gap-2 px-4 py-2.5 text-xs font-bold rounded-lg border transition-all ${
+                      checkingApiKey 
+                        ? 'bg-slate-50 border-slate-200 text-slate-400 cursor-not-allowed'
+                        : 'bg-amber-50 hover:bg-amber-100 border-amber-200 text-amber-700 hover:text-amber-800 shadow-sm'
+                    }`}
+                  >
+                    {checkingApiKey ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-600" />
+                        Mengecek...
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                        Cek Koneksi API Key
+                      </>
+                    )}
+                  </button>
+                  
+                  {customApiKey && (
+                    <button 
+                      type="button" 
+                      onClick={() => {
+                        setCustomApiKey('');
+                        setApiCheckStatus('idle');
+                        setApiCheckMessage('');
+                        try {
+                          localStorage.removeItem('tu_custom_api_key');
+                        } catch (ex) {}
+                        alert('API Key berhasil dihapus dari browser.');
+                      }}
+                      className="text-xs text-slate-400 hover:text-red-500 font-medium transition-colors border border-dashed border-slate-200 hover:border-red-200 px-3 py-2 rounded-lg"
+                    >
+                      Hapus API Key
+                    </button>
                   )}
 
-                  <div className="pt-2 border-t border-slate-100">
-                    <a 
-                      href="https://aistudio.google.com/app/apikey" 
-                      target="_blank" 
-                      rel="noopener noreferrer"
-                      className="text-xs text-blue-600 hover:underline flex items-center gap-1"
-                    >
-                      Dapatkan API Key Gratis di Google AI Studio <ExternalLink className="w-3 h-3" />
-                    </a>
-                    <p className="text-[10px] text-slate-400 mt-1">
-                      Catatan: Gunakan API Key dari <strong>Google AI Studio</strong>. API Key dari Vertex AI (Cloud Console) mungkin tidak kompatibel.
-                    </p>
-                  </div>
+                  <span className="text-[10px] text-emerald-600 font-semibold bg-emerald-50 px-2 py-1 rounded-md ml-auto">
+                    ✓ Tersimpan Otomatis secara Lokal
+                  </span>
                 </div>
-              )}
+
+                {apiCheckStatus !== 'idle' && (
+                  <div className={`p-4 rounded-xl border text-sm flex items-start gap-3 animate-fade-in transition-all ${
+                    apiCheckStatus === 'success' 
+                      ? 'bg-emerald-50 border-emerald-200 text-emerald-800' 
+                      : 'bg-red-50 border-red-200 text-red-800'
+                  }`}>
+                    {apiCheckStatus === 'success' ? (
+                      <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0" />
+                    ) : (
+                      <AlertCircle className="w-5 h-5 text-red-500 shrink-0" />
+                    )}
+                    <div>
+                      <p className="font-bold text-xs uppercase tracking-wide mb-0.5">
+                        {apiCheckStatus === 'success' ? 'Aktif / Connected' : 'Koneksi Gagal'}
+                      </p>
+                      <p className="text-xs leading-relaxed opacity-90">{apiCheckMessage}</p>
+                    </div>
+                  </div>
+                )}
+
+                <div className="pt-2 border-t border-slate-100">
+                  <a 
+                    href="https://aistudio.google.com/app/apikey" 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="text-xs text-blue-600 hover:underline flex items-center gap-1"
+                  >
+                    Dapatkan API Key Gratis di Google AI Studio <ExternalLink className="w-3 h-3" />
+                  </a>
+                  <p className="text-[10px] text-slate-400 mt-1">
+                    Catatan: Gunakan API Key dari <strong>Google AI Studio</strong>. API Key dari Vertex AI (Cloud Console) mungkin tidak kompatibel.
+                  </p>
+                </div>
+              </div>
             </div>
           )}
         </main>
